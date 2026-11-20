@@ -1,0 +1,307 @@
+# 6 bases de datos MySQL independientes (RNF02) con PersistentVolumeClaim propio
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pvc-mysql-usuarios
+  namespace: andina-inventory
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mysql-usuarios
+  namespace: andina-inventory
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mysql-usuarios
+  template:
+    metadata:
+      labels:
+        app: mysql-usuarios
+    spec:
+      containers:
+        - name: mysql
+          image: mysql:8.0
+          ports:
+            - containerPort: 3306
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom: { secretKeyRef: { name: andina-secrets, key: MYSQL_ROOT_PASSWORD } }
+            - name: MYSQL_DATABASE
+              value: db_usuarios
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/mysql
+      volumes:
+        - name: data
+          persistentVolumeClaim: { claimName: pvc-mysql-usuarios }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql-usuarios
+  namespace: andina-inventory
+spec:
+  selector: { app: mysql-usuarios }
+  ports: [{ port: 3306, targetPort: 3306 }]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pvc-mysql-catalogo
+  namespace: andina-inventory
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mysql-catalogo
+  namespace: andina-inventory
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mysql-catalogo
+  template:
+    metadata:
+      labels:
+        app: mysql-catalogo
+    spec:
+      containers:
+        - name: mysql
+          image: mysql:8.0
+          ports: [{ containerPort: 3306 }]
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom: { secretKeyRef: { name: andina-secrets, key: MYSQL_ROOT_PASSWORD } }
+            - name: MYSQL_DATABASE
+              value: db_catalogo
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/mysql
+      volumes:
+        - name: data
+          persistentVolumeClaim: { claimName: pvc-mysql-catalogo }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql-catalogo
+  namespace: andina-inventory
+spec:
+  selector: { app: mysql-catalogo }
+  ports: [{ port: 3306, targetPort: 3306 }]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pvc-mysql-inventario
+  namespace: andina-inventory
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mysql-inventario
+  namespace: andina-inventory
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mysql-inventario
+  template:
+    metadata:
+      labels:
+        app: mysql-inventario
+    spec:
+      containers:
+        - name: mysql
+          image: mysql:8.0
+          ports: [{ containerPort: 3306 }]
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom: { secretKeyRef: { name: andina-secrets, key: MYSQL_ROOT_PASSWORD } }
+            - name: MYSQL_DATABASE
+              value: db_inventario
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/mysql
+      volumes:
+        - name: data
+          persistentVolumeClaim: { claimName: pvc-mysql-inventario }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql-inventario
+  namespace: andina-inventory
+spec:
+  selector: { app: mysql-inventario }
+  ports: [{ port: 3306, targetPort: 3306 }]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pvc-mysql-abastecimiento
+  namespace: andina-inventory
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mysql-abastecimiento
+  namespace: andina-inventory
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mysql-abastecimiento
+  template:
+    metadata:
+      labels:
+        app: mysql-abastecimiento
+    spec:
+      containers:
+        - name: mysql
+          image: mysql:8.0
+          ports: [{ containerPort: 3306 }]
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom: { secretKeyRef: { name: andina-secrets, key: MYSQL_ROOT_PASSWORD } }
+            - name: MYSQL_DATABASE
+              value: db_abastecimiento
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/mysql
+      volumes:
+        - name: data
+          persistentVolumeClaim: { claimName: pvc-mysql-abastecimiento }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql-abastecimiento
+  namespace: andina-inventory
+spec:
+  selector: { app: mysql-abastecimiento }
+  ports: [{ port: 3306, targetPort: 3306 }]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pvc-mysql-ventas
+  namespace: andina-inventory
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 2Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mysql-ventas
+  namespace: andina-inventory
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mysql-ventas
+  template:
+    metadata:
+      labels:
+        app: mysql-ventas
+    spec:
+      containers:
+        - name: mysql
+          image: mysql:8.0
+          ports: [{ containerPort: 3306 }]
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom: { secretKeyRef: { name: andina-secrets, key: MYSQL_ROOT_PASSWORD } }
+            - name: MYSQL_DATABASE
+              value: db_ventas
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/mysql
+      volumes:
+        - name: data
+          persistentVolumeClaim: { claimName: pvc-mysql-ventas }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql-ventas
+  namespace: andina-inventory
+spec:
+  selector: { app: mysql-ventas }
+  ports: [{ port: 3306, targetPort: 3306 }]
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pvc-mysql-reportes
+  namespace: andina-inventory
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mysql-reportes
+  namespace: andina-inventory
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: mysql-reportes
+  template:
+    metadata:
+      labels:
+        app: mysql-reportes
+    spec:
+      containers:
+        - name: mysql
+          image: mysql:8.0
+          ports: [{ containerPort: 3306 }]
+          env:
+            - name: MYSQL_ROOT_PASSWORD
+              valueFrom: { secretKeyRef: { name: andina-secrets, key: MYSQL_ROOT_PASSWORD } }
+            - name: MYSQL_DATABASE
+              value: db_reportes
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/mysql
+      volumes:
+        - name: data
+          persistentVolumeClaim: { claimName: pvc-mysql-reportes }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mysql-reportes
+  namespace: andina-inventory
+spec:
+  selector: { app: mysql-reportes }
+  ports: [{ port: 3306, targetPort: 3306 }]
