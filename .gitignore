@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+*.db
+*.sqlite3
+
+# Node / Frontend
+node_modules/
+dist/
+build/
+.vite/
+
+# Laravel / PHP (para el Gateway de Cristian)
+vendor/
+storage/*.key
+bootstrap/cache/*
+
+# Environment & IDE
+.env
+.env.local
+.vscode/
+.idea/
+*.log
+.DS_Store
+Thumbs.db

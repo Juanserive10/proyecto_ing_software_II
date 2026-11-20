@@ -1,0 +1,216 @@
+name: distribuidora-andina
+
+services:
+  # ==================== BASES DE DATOS INDEPENDIENTES (RNF02) ====================
+  mysql-usuarios:
+    image: mysql:8.0
+    container_name: andina-mysql-usuarios
+    environment:
+      MYSQL_ROOT_PASSWORD: andina_root_password
+      MYSQL_DATABASE: db_usuarios
+    ports: ["3307:3306"]
+    volumes: [mysql_usuarios_data:/var/lib/mysql]
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-pandina_root_password"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+
+  mysql-catalogo:
+    image: mysql:8.0
+    container_name: andina-mysql-catalogo
+    environment:
+      MYSQL_ROOT_PASSWORD: andina_root_password
+      MYSQL_DATABASE: db_catalogo
+    ports: ["3308:3306"]
+    volumes: [mysql_catalogo_data:/var/lib/mysql]
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-pandina_root_password"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+
+  mysql-inventario:
+    image: mysql:8.0
+    container_name: andina-mysql-inventario
+    environment:
+      MYSQL_ROOT_PASSWORD: andina_root_password
+      MYSQL_DATABASE: db_inventario
+    ports: ["3309:3306"]
+    volumes: [mysql_inventario_data:/var/lib/mysql]
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-pandina_root_password"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+
+  mysql-abastecimiento:
+    image: mysql:8.0
+    container_name: andina-mysql-abastecimiento
+    environment:
+      MYSQL_ROOT_PASSWORD: andina_root_password
+      MYSQL_DATABASE: db_abastecimiento
+    ports: ["3310:3306"]
+    volumes: [mysql_abastecimiento_data:/var/lib/mysql]
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-pandina_root_password"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+
+  mysql-ventas:
+    image: mysql:8.0
+    container_name: andina-mysql-ventas
+    environment:
+      MYSQL_ROOT_PASSWORD: andina_root_password
+      MYSQL_DATABASE: db_ventas
+    ports: ["3311:3306"]
+    volumes: [mysql_ventas_data:/var/lib/mysql]
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-pandina_root_password"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+
+  mysql-reportes:
+    image: mysql:8.0
+    container_name: andina-mysql-reportes
+    environment:
+      MYSQL_ROOT_PASSWORD: andina_root_password
+      MYSQL_DATABASE: db_reportes
+    ports: ["3312:3306"]
+    volumes: [mysql_reportes_data:/var/lib/mysql]
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-pandina_root_password"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+
+  # ==================== MESSAGE BROKER (RABBITMQ) ====================
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    container_name: andina-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: andina
+      RABBITMQ_DEFAULT_PASS: andina_rabbit_2026
+      RABBITMQ_ERLANG_COOKIE: andina_erlang_cookie_2026
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/5672'"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+
+  # ==================== MICROSERVICIOS ====================
+  usuarios-service:
+    build: ./services/usuarios-service
+    container_name: andina-usuarios-service
+    environment:
+      DATABASE_URL: mysql+pymysql://root:andina_root_password@mysql-usuarios:3306/db_usuarios
+      JWT_SECRET: andina-jwt-super-secret-2026
+    ports: ["5001:5001"]
+    depends_on:
+      mysql-usuarios:
+        condition: service_healthy
+    restart: unless-stopped
+
+  catalogo-service:
+    build: ./services/catalogo-service
+    container_name: andina-catalogo-service
+    environment:
+      DATABASE_URL: mysql+pymysql://root:andina_root_password@mysql-catalogo:3306/db_catalogo
+    ports: ["5002:5002"]
+    depends_on:
+      mysql-catalogo:
+        condition: service_healthy
+    restart: unless-stopped
+
+  inventario-service:
+    build: ./services/inventario-service
+    container_name: andina-inventario-service
+    environment:
+      DATABASE_URL: mysql+pymysql://root:andina_root_password@mysql-inventario:3306/db_inventario
+      RABBITMQ_URL: amqp://andina:andina_rabbit_2026@rabbitmq:5672/
+    ports: ["5003:5003"]
+    depends_on:
+      mysql-inventario:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+  abastecimiento-service:
+    build: ./services/abastecimiento-service
+    container_name: andina-abastecimiento-service
+    environment:
+      DATABASE_URL: mysql+pymysql://root:andina_root_password@mysql-abastecimiento:3306/db_abastecimiento
+      INVENTARIO_URL: http://inventario-service:5003
+    ports: ["5004:5004"]
+    depends_on:
+      mysql-abastecimiento:
+        condition: service_healthy
+      inventario-service:
+        condition: service_started
+    restart: unless-stopped
+
+  ventas-service:
+    build: ./services/ventas-service
+    container_name: andina-ventas-service
+    environment:
+      DATABASE_URL: mysql+pymysql://root:andina_root_password@mysql-ventas:3306/db_ventas
+      INVENTARIO_URL: http://inventario-service:5003
+      CATALOGO_URL: http://catalogo-service:5002
+      RABBITMQ_URL: amqp://andina:andina_rabbit_2026@rabbitmq:5672/
+    ports: ["5005:5005"]
+    depends_on:
+      mysql-ventas:
+        condition: service_healthy
+      inventario-service:
+        condition: service_started
+      catalogo-service:
+        condition: service_started
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+  reportes-service:
+    build: ./services/reportes-service
+    container_name: andina-reportes-service
+    environment:
+      DATABASE_URL: mysql+pymysql://root:andina_root_password@mysql-reportes:3306/db_reportes
+      RABBITMQ_URL: amqp://andina:andina_rabbit_2026@rabbitmq:5672/
+      INVENTARIO_URL: http://inventario-service:5003
+      CATALOGO_URL: http://catalogo-service:5002
+      VENTAS_URL: http://ventas-service:5005
+    ports: ["5006:5006"]
+    depends_on:
+      mysql-reportes:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ==================== FRONTEND WEB 3D ====================
+  frontend:
+    build: ./frontend
+    container_name: andina-frontend
+    ports: ["5173:80"]
+    depends_on:
+      - usuarios-service
+      - catalogo-service
+      - inventario-service
+      - abastecimiento-service
+      - ventas-service
+      - reportes-service
+    restart: unless-stopped
+
+volumes:
+  mysql_usuarios_data:
+  mysql_catalogo_data:
+  mysql_inventario_data:
+  mysql_abastecimiento_data:
+  mysql_ventas_data:
+  mysql_reportes_data:
