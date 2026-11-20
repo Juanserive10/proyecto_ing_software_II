@@ -217,15 +217,13 @@ def create_sale(payload: VentaCreate, db: Session = Depends(get_db)):
                     raise HTTPException(status_code=502, detail=f"Error consultando Catálogo: {exc}")
             resolved_items.append((item.id_producto, item.cantidad, precio))
 
-    # 2. Registrar Venta en estado PENDIENTE
-    seq = db.query(Venta).count() + 1
-    numero = f"VTA-2026-{seq:05d}"
+    # 2. Registrar Venta en estado PENDIENTE (numero derivado de PK autoincremental para evitar colisiones concurrentes)
     subtotal = sum(cant * prec for _, cant, prec in resolved_items)
 
     venta = Venta(
         id_bodega=payload.id_bodega,
         id_usuario=payload.id_usuario,
-        numero=numero,
+        numero=f"TMP-{uuid.uuid4().hex[:12]}",
         estado="PENDIENTE",
         metodo_pago=payload.metodo_pago.upper(),
         subtotal=subtotal,
@@ -234,6 +232,7 @@ def create_sale(payload: VentaCreate, db: Session = Depends(get_db)):
     )
     db.add(venta)
     db.flush()
+    venta.numero = f"VTA-2026-{venta.id_venta:05d}"
 
     for id_prod, cant, prec in resolved_items:
         db.add(
