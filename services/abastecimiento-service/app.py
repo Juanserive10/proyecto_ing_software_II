@@ -373,18 +373,19 @@ def create_purchase_order():
     if not Proveedor.query.get(id_proveedor):
         return jsonify({"error": "Proveedor no encontrado"}), 404
 
-    count = OrdenCompra.query.count() + 1
-    numero = data.get("numero") or f"OC-2026-{count:04d}"
+    custom_numero = data.get("numero")
 
     oc = OrdenCompra(
         id_proveedor=id_proveedor,
         id_usuario=int(data.get("id_usuario", 1)),
-        numero=numero,
+        numero=custom_numero or f"TMP-{uuid.uuid4().hex[:12]}",
         estado="EMITIDA",
         total_estimado=Decimal("0.00"),
     )
     db.session.add(oc)
     db.session.flush()
+    if not custom_numero:
+        oc.numero = f"OC-2026-{oc.id_orden:04d}"
 
     total = Decimal("0.00")
     for item in items:
