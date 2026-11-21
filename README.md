@@ -12,6 +12,7 @@ Arquitectura de **6 microservicios independientes** con persistencia aislada por
 | `abastecimiento-service` | Flask + SQLAlchemy + Requests | `5004` | `db_abastecimiento` | `/apidocs` | Juan |
 | `ventas-service` | FastAPI + SQLAlchemy + HTTPX + Pika | `5005` | `db_ventas` | `/docs` | Juan |
 | `reportes-service` | FastAPI + SQLAlchemy + Pika Consumer | `5006` | `db_reportes` | `/docs` | Juan |
+| `api-gateway` | Laravel 13 (nginx + php-fpm) | `8000` | — | `/api/health` | Cristian |
 | `frontend` | React + Vite + Mapa 3D | `5173` | — | — | Equipo |
 | `rabbitmq` | RabbitMQ 3.13 Management | `5672` / `15672` | — | UI `:15672` | Juan |
 
@@ -28,7 +29,9 @@ Arquitectura de **6 microservicios independientes** con persistencia aislada por
 ```bash
 docker compose up --build
 ```
-- **Frontend 3D:** `http://localhost:5173`
+- **Frontend 3D:** `http://localhost:5173` (todas sus llamadas van al Gateway)
+- **API Gateway:** `http://localhost:8000/api/{usuarios|catalogo|inventario|abastecimiento|ventas|reportes}/...`
+- Los puertos `5001`–`5006` ya **no** se publican en el host: el único acceso externo es el Gateway (RNF09). Para depurar directo contra un servicio: `docker compose -f docker-compose.yml -f docker-compose.debug.yml up --build`.
 - **Credenciales demo:** `admin@andina.com` / `Admin123*` (también `bodega@andina.com` / `Bodega123*` y `ventas@andina.com` / `Ventas123*`)
 - **RabbitMQ Management:** `http://localhost:15672` (`andina` / `andina_rabbit_2026`)
 
@@ -63,8 +66,27 @@ locust -f performance-tests/locustfile.py --headless -u 100 -r 15 -t 60s --csv=p
 locust -f performance-tests/locustfile.py --headless -u 200 -r 30 -t 60s --csv=performance-tests/estres
 ```
 
-## 5. Integración con el API Gateway de Cristian
-Cuando el API Gateway en Laravel esté listo:
-1. Enrutar `/api/usuarios/*`, `/api/catalogo/*`, `/api/inventario/*`, `/api/abastecimiento/*`, `/api/ventas/*` y `/api/reportes/*` hacia los servicios internos (`ClusterIP` en Kubernetes).
-2. Validar JWT con `JWT_SECRET=andina-jwt-super-secret-2026` o mediante `POST http://usuarios-service:5001/auth/verify`.
-3. En `frontend/.env`, definir `VITE_GATEWAY_URL=http://localhost:8000` (o la URL del Ingress) para que todo el tráfico del frontend pase exclusivamente por el Gateway.
+- **15 pruebas de rendimiento de Cristian (usuarios + catálogo, vía Gateway):** ver [performance-tests/PLAN_PRUEBAS_RENDIMIENTO_CRISTIAN.md](performance-tests/PLAN_PRUEBAS_RENDIMIENTO_CRISTIAN.md) y [RESULTADOS_CRISTIAN.md](performance-tests/RESULTADOS_CRISTIAN.md)
+```bash
+./performance-tests/run_cristian.sh            # normal, pico, estres, spike, resistencia
+python3 performance-tests/resumen_cristian.py  # regenera el resumen
+```
+
+## 5. API Gateway (Laravel, `RNF09`)
+
+Código en [`api-gateway/`](api-gateway). Toda petición externa entra por `http://localhost:8000/api/{servicio}/{ruta}` y se reenvía a `http://{servicio}-service:{puerto}/{ruta}` dentro de la red de Docker.
+
+| Prefijo | Servicio interno |
+| :--- | :--- |
+| `/api/usuarios/*` | `usuarios-service:5001` |
+| `/api/catalogo/*` | `catalogo-service:5002` |
+| `/api/inventario/*` | `inventario-service:5003` |
+| `/api/abastecimiento/*` | `abastecimiento-service:5004` |
+| `/api/ventas/*` | `ventas-service:5005` |
+| `/api/reportes/*` | `reportes-service:5006` |
+
+- **JWT:** todas las rutas exigen `Authorization: Bearer <token>`, salvo `*/health`, `usuarios/auth/login`, `register`, `verify`, `forgot-password` y `reset-password`. Con `JWT_VERIFY_MODE=local` (por defecto) el Gateway valida la firma HS256 y la expiración con `JWT_SECRET`. Con `remote` delega en `POST http://usuarios-service:5001/auth/verify`. Los tokens cerrados con `/auth/logout` quedan revocados también en el Gateway.
+- **CORS:** lo resuelve el Gateway (`CORS_ALLOWED_ORIGINS`, por defecto `http://localhost:5173`).
+- **Frontend:** se compila con el build arg `VITE_GATEWAY_URL=http://localhost:8000` (ver `docker-compose.yml`).
+- **Observabilidad:** una línea de log JSON por petición (`docker logs andina-api-gateway`) y cabeceras `X-Request-Id`, `X-Upstream-Service` y `X-Gateway-Time-Ms`.
+- **Pruebas del Gateway:** `docker run --rm -v "$PWD/api-gateway:/app" -w /app composer:2 sh -c "composer install -q && php artisan test"`
