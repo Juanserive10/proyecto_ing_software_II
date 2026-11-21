@@ -2,6 +2,8 @@ FROM node:22-alpine AS builder
 WORKDIR /app
 COPY package.json ./
 RUN npm install
+ARG VITE_GATEWAY_URL=
+ENV VITE_GATEWAY_URL=$VITE_GATEWAY_URL
 COPY . .
 RUN npm run build
 
