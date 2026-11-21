@@ -1,0 +1,55 @@
+[2026-11-21 22:47:55,101] alex-Vivobook-ASUSLaptop-X1605VA-X1605VA/INFO/locust.main: Starting Locust 2.37.10
+[2026-11-21 22:47:55,102] alex-Vivobook-ASUSLaptop-X1605VA-X1605VA/INFO/locust.runners: Shape test starting.
+[2026-11-21 22:47:55,102] alex-Vivobook-ASUSLaptop-X1605VA-X1605VA/INFO/locust.runners: Shape worker starting
+[2026-11-21 22:47:55,102] alex-Vivobook-ASUSLaptop-X1605VA-X1605VA/INFO/locust.runners: Shape test updating to 30 users at 5.00 spawn rate
+[2026-11-21 22:47:55,102] alex-Vivobook-ASUSLaptop-X1605VA-X1605VA/INFO/locust.runners: Ramping to 30 users at a rate of 5.00 per second
+[2026-11-21 22:48:00,116] alex-Vivobook-ASUSLaptop-X1605VA-X1605VA/INFO/locust.runners: All users spawned: {"UsuariosCatalogoUser": 30} (30 total users)
+[2026-11-21 22:48:55,242] alex-Vivobook-ASUSLaptop-X1605VA-X1605VA/INFO/locust.runners: Shape test stopping
+[2026-11-21 22:48:55,268] alex-Vivobook-ASUSLaptop-X1605VA-X1605VA/INFO/locust.main: --run-time limit reached, shutting down
+[2026-11-21 22:48:55,327] alex-Vivobook-ASUSLaptop-X1605VA-X1605VA/INFO/locust.main: writing html report to file: resultados_cristian/normal.html
+[2026-11-21 22:48:55,328] alex-Vivobook-ASUSLaptop-X1605VA-X1605VA/INFO/locust.main: Shutting down (exit code 0)
+Type     Name                                                                          # reqs      # fails |    Avg     Min     Max    Med |   req/s  failures/s
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+POST     PC01 POST /usuarios/auth/login                                                    87     0(0.00%) |    109      87     275    110 |    1.45        0.00
+POST     PC02 POST /usuarios/auth/login (inválido -> 401)                                  64     0(0.00%) |    100      84     230     98 |    1.06        0.00
+POST     PC03 POST /usuarios/auth/register                                                 39     0(0.00%) |    109      91     126    110 |    0.65        0.00
+POST     PC04 POST /usuarios/auth/verify                                                  142     0(0.00%) |     15       6     169     13 |    2.36        0.00
+GET      PC05 GET /usuarios/users                                                         133     0(0.00%) |     19       8      93     19 |    2.21        0.00
+GET      PC06 GET /usuarios/auth/me                                                       112     0(0.00%) |     18       6     199     16 |    1.86        0.00
+GET      PC07 GET /usuarios/roles                                                          88     0(0.00%) |     16       6      87     15 |    1.46        0.00
+GET      PC08 GET /usuarios/users sin JWT (-> 401)                                         65     0(0.00%) |      7       3      12      8 |    1.08        0.00
+GET      PC09 GET /catalogo/products                                                      196     0(0.00%) |     19       9      34     20 |    3.26        0.00
+GET      PC10 GET /catalogo/products?q=                                                   186     0(0.00%) |     15       7      26     16 |    3.09        0.00
+GET      PC11 GET /catalogo/products?id_categoria=                                        134     0(0.00%) |     16       7      27     16 |    2.23        0.00
+GET      PC12 GET /catalogo/products?q=&id_categoria=&activo=                             110     0(0.00%) |     15       9      28     16 |    1.83        0.00
+GET      PC13 GET /catalogo/categories                                                    135     0(0.00%) |     14       6      24     15 |    2.24        0.00
+GET      PC14 GET /catalogo/products/{id}                                                 143     0(0.00%) |     15       7      33     15 |    2.38        0.00
+GET      PC15 Flujo POS categorías->filtro->detalle                                       180     0(0.00%) |     14       7      28     14 |    2.99        0.00
+GET      SETUP carga ids catálogo                                                          60     0(0.00%) |     13       8      29     13 |    1.00        0.00
+POST     SETUP login inicial                                                               30     0(0.00%) |    215     102     450    210 |    0.50        0.00
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+         Aggregated                                                                      1904     0(0.00%) |     28       3     450     16 |   31.65        0.00
+
+Response time percentiles (approximated)
+Type     Name                                                                                  50%    66%    75%    80%    90%    95%    98%    99%  99.9% 99.99%   100% # reqs
+--------|--------------------------------------------------------------------------------|--------|------|------|------|------|------|------|------|------|------|------|------
+POST     PC01 POST /usuarios/auth/login                                                        110    110    110    110    120    130    200    280    280    280    280     87
+POST     PC02 POST /usuarios/auth/login (inválido -> 401)                                       98    100    100    100    110    110    160    230    230    230    230     64
+POST     PC03 POST /usuarios/auth/register                                                     110    110    110    110    120    120    130    130    130    130    130     39
+POST     PC04 POST /usuarios/auth/verify                                                        13     14     14     15     17     18     67    120    170    170    170    142
+GET      PC05 GET /usuarios/users                                                               19     21     22     22     24     26     59     75     93     93     93    133
+GET      PC06 GET /usuarios/auth/me                                                             17     18     19     19     20     22     60     61    200    200    200    112
+GET      PC07 GET /usuarios/roles                                                               15     17     18     18     19     20     69     88     88     88     88     88
+GET      PC08 GET /usuarios/users sin JWT (-> 401)                                               8      9     10     10     10     11     11     12     12     12     12     65
+GET      PC09 GET /catalogo/products                                                            20     21     22     23     25     26     29     31     34     34     34    196
+GET      PC10 GET /catalogo/products?q=                                                         16     17     18     19     21     24     26     26     27     27     27    186
+GET      PC11 GET /catalogo/products?id_categoria=                                              16     18     18     19     21     22     24     26     28     28     28    134
+GET      PC12 GET /catalogo/products?q=&id_categoria=&activo=                                   16     18     18     18     20     22     25     27     28     28     28    110
+GET      PC13 GET /catalogo/categories                                                          15     16     17     17     19     21     24     25     25     25     25    135
+GET      PC14 GET /catalogo/products/{id}                                                       15     17     18     19     20     22     25     33     34     34     34    143
+GET      PC15 Flujo POS categorías->filtro->detalle                                             14     15     17     17     19     20     24     27     29     29     29    180
+GET      SETUP carga ids catálogo                                                               13     14     16     17     20     24     26     30     30     30     30     60
+POST     SETUP login inicial                                                                   210    230    290    300    360    370    450    450    450    450    450     30
+--------|--------------------------------------------------------------------------------|--------|------|------|------|------|------|------|------|------|------|------|------
+         Aggregated                                                                             16     18     20     22     96    110    120    200    370    450    450   1904
+

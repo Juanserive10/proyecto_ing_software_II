@@ -1,0 +1,64 @@
+[2026-11-21 22:50:02,004] alex-Vivobook-ASUSLaptop-X1605VA-X1605VA/INFO/locust.main: Starting Locust 2.37.10
+[2026-11-21 22:50:02,004] alex-Vivobook-ASUSLaptop-X1605VA-X1605VA/INFO/locust.runners: Shape test starting.
+[2026-11-21 22:50:02,005] alex-Vivobook-ASUSLaptop-X1605VA-X1605VA/INFO/locust.runners: Shape worker starting
+[2026-11-21 22:50:02,005] alex-Vivobook-ASUSLaptop-X1605VA-X1605VA/INFO/locust.runners: Shape test updating to 50 users at 10.00 spawn rate
+[2026-11-21 22:50:02,005] alex-Vivobook-ASUSLaptop-X1605VA-X1605VA/INFO/locust.runners: Ramping to 50 users at a rate of 10.00 per second
+[2026-11-21 22:50:06,014] alex-Vivobook-ASUSLaptop-X1605VA-X1605VA/INFO/locust.runners: All users spawned: {"UsuariosCatalogoUser": 50} (50 total users)
+[2026-11-21 22:50:32,077] alex-Vivobook-ASUSLaptop-X1605VA-X1605VA/INFO/locust.runners: Shape test updating to 100 users at 10.00 spawn rate
+[2026-11-21 22:50:32,078] alex-Vivobook-ASUSLaptop-X1605VA-X1605VA/INFO/locust.runners: Ramping to 100 users at a rate of 10.00 per second
+[2026-11-21 22:50:36,090] alex-Vivobook-ASUSLaptop-X1605VA-X1605VA/INFO/locust.runners: All users spawned: {"UsuariosCatalogoUser": 100} (100 total users)
+[2026-11-21 22:51:02,162] alex-Vivobook-ASUSLaptop-X1605VA-X1605VA/INFO/locust.runners: Shape test updating to 200 users at 20.00 spawn rate
+[2026-11-21 22:51:02,162] alex-Vivobook-ASUSLaptop-X1605VA-X1605VA/INFO/locust.runners: Ramping to 200 users at a rate of 20.00 per second
+[2026-11-21 22:51:06,178] alex-Vivobook-ASUSLaptop-X1605VA-X1605VA/INFO/locust.runners: All users spawned: {"UsuariosCatalogoUser": 200} (200 total users)
+[2026-11-21 22:51:32,301] alex-Vivobook-ASUSLaptop-X1605VA-X1605VA/INFO/locust.runners: Shape test updating to 300 users at 30.00 spawn rate
+[2026-11-21 22:51:32,301] alex-Vivobook-ASUSLaptop-X1605VA-X1605VA/INFO/locust.runners: Ramping to 300 users at a rate of 30.00 per second
+[2026-11-21 22:51:35,318] alex-Vivobook-ASUSLaptop-X1605VA-X1605VA/INFO/locust.runners: All users spawned: {"UsuariosCatalogoUser": 300} (300 total users)
+[2026-11-21 22:52:02,469] alex-Vivobook-ASUSLaptop-X1605VA-X1605VA/INFO/locust.runners: Shape test stopping
+[2026-11-21 22:52:02,514] alex-Vivobook-ASUSLaptop-X1605VA-X1605VA/INFO/locust.main: --run-time limit reached, shutting down
+[2026-11-21 22:52:02,589] alex-Vivobook-ASUSLaptop-X1605VA-X1605VA/INFO/locust.main: writing html report to file: resultados_cristian/estres.html
+[2026-11-21 22:52:02,592] alex-Vivobook-ASUSLaptop-X1605VA-X1605VA/INFO/locust.main: Shutting down (exit code 0)
+Type     Name                                                                          # reqs      # fails |    Avg     Min     Max    Med |   req/s  failures/s
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+POST     PC01 POST /usuarios/auth/login                                                   723     0(0.00%) |    864      87    3858    730 |    6.00        0.00
+POST     PC02 POST /usuarios/auth/login (inválido -> 401)                                 478     0(0.00%) |    837      83    3680    760 |    3.97        0.00
+POST     PC03 POST /usuarios/auth/register                                                247     0(0.00%) |    790      93    3846    690 |    2.05        0.00
+POST     PC04 POST /usuarios/auth/verify                                                  920     0(0.00%) |    796       5    3810    670 |    7.63        0.00
+GET      PC05 GET /usuarios/users                                                         905     0(0.00%) |    759      11    3777    660 |    7.51        0.00
+GET      PC06 GET /usuarios/auth/me                                                       694     0(0.00%) |    742       7    3733    640 |    5.76        0.00
+GET      PC07 GET /usuarios/roles                                                         483     0(0.00%) |    774       6    3692    620 |    4.01        0.00
+GET      PC08 GET /usuarios/users sin JWT (-> 401)                                        459     0(0.00%) |    448       3    2967    150 |    3.81        0.00
+GET      PC09 GET /catalogo/products                                                     1442     0(0.00%) |    402       7    2989    120 |   11.97        0.00
+GET      PC10 GET /catalogo/products?q=                                                  1150     0(0.00%) |    378       6    2948    100 |    9.54        0.00
+GET      PC11 GET /catalogo/products?id_categoria=                                        936     0(0.00%) |    380       7    2975     99 |    7.77        0.00
+GET      PC12 GET /catalogo/products?q=&id_categoria=&activo=                             703     0(0.00%) |    417       7    2983    130 |    5.83        0.00
+GET      PC13 GET /catalogo/categories                                                    922     0(0.00%) |    383       6    2982    110 |    7.65        0.00
+GET      PC14 GET /catalogo/products/{id}                                                 918     0(0.00%) |    427       6    2964    190 |    7.62        0.00
+GET      PC15 Flujo POS categorías->filtro->detalle                                      1374     0(0.00%) |    400       6    2880    140 |   11.40        0.00
+GET      SETUP carga ids catálogo                                                         600     0(0.00%) |    797       6    2979    660 |    4.98        0.00
+POST     SETUP login inicial                                                              300     0(0.00%) |   1373      96    3897   1100 |    2.49        0.00
+--------|----------------------------------------------------------------------------|-------|-------------|-------|-------|-------|-------|--------|-----------
+         Aggregated                                                                     13254     0(0.00%) |    572       3    3897    300 |  109.99        0.00
+
+Response time percentiles (approximated)
+Type     Name                                                                                  50%    66%    75%    80%    90%    95%    98%    99%  99.9% 99.99%   100% # reqs
+--------|--------------------------------------------------------------------------------|--------|------|------|------|------|------|------|------|------|------|------|------
+POST     PC01 POST /usuarios/auth/login                                                        730   1200   1400   1500   1700   1800   3200   3500   3900   3900   3900    723
+POST     PC02 POST /usuarios/auth/login (inválido -> 401)                                      760   1200   1400   1500   1700   1800   2400   3200   3700   3700   3700    478
+POST     PC03 POST /usuarios/auth/register                                                     690    960   1400   1500   1700   1800   2400   3200   3800   3800   3800    247
+POST     PC04 POST /usuarios/auth/verify                                                       670   1200   1400   1500   1600   1800   3100   3400   3800   3800   3800    920
+GET      PC05 GET /usuarios/users                                                              660    960   1400   1400   1600   1800   2100   3400   3800   3800   3800    905
+GET      PC06 GET /usuarios/auth/me                                                            660    980   1400   1400   1600   1700   2100   3300   3700   3700   3700    694
+GET      PC07 GET /usuarios/roles                                                              620   1000   1300   1400   1600   1800   3100   3300   3700   3700   3700    483
+GET      PC08 GET /usuarios/users sin JWT (-> 401)                                             150    640    860    940   1100   1300   2600   2900   3000   3000   3000    459
+GET      PC09 GET /catalogo/products                                                           120    440    810    890   1100   1200   2000   2600   3000   3000   3000   1442
+GET      PC10 GET /catalogo/products?q=                                                        100    380    790    870   1100   1200   1500   2500   2900   2900   2900   1150
+GET      PC11 GET /catalogo/products?id_categoria=                                              99    380    790    860   1100   1200   1400   2300   3000   3000   3000    936
+GET      PC12 GET /catalogo/products?q=&id_categoria=&activo=                                  130    660    840    920   1100   1200   1600   2000   3000   3000   3000    703
+GET      PC13 GET /catalogo/categories                                                         110    400    760    850   1100   1200   1900   2400   3000   3000   3000    922
+GET      PC14 GET /catalogo/products/{id}                                                      190    550    830    900   1100   1300   2000   2700   3000   3000   3000    918
+GET      PC15 Flujo POS categorías->filtro->detalle                                            140    480    790    860   1100   1200   1800   2400   2900   2900   2900   1374
+GET      SETUP carga ids catálogo                                                              670    900   1100   1300   2100   2800   2900   3000   3000   3000   3000    600
+POST     SETUP login inicial                                                                  1100   1800   2100   2400   3100   3600   3700   3800   3900   3900   3900    300
+--------|--------------------------------------------------------------------------------|--------|------|------|------|------|------|------|------|------|------|------|------
+         Aggregated                                                                            300    780    930   1100   1500   1700   2500   3000   3700   3900   3900  13254
+
