@@ -1,0 +1,18 @@
+# Override SOLO para depuración local: vuelve a publicar los puertos de los
+# microservicios en el host (p. ej. para scripts/test_e2e_flows.py o el
+# locustfile original que apuntan directo a :5001-:5006).
+#   docker compose -f docker-compose.yml -f docker-compose.debug.yml up --build
+# En el uso normal el acceso externo es exclusivamente por el API Gateway (:8000).
+services:
+  usuarios-service:
+    ports: ["5001:5001"]
+  catalogo-service:
+    ports: ["5002:5002"]
+  inventario-service:
+    ports: ["5003:5003"]
+  abastecimiento-service:
+    ports: ["5004:5004"]
+  ventas-service:
+    ports: ["5005:5005"]
+  reportes-service:
+    ports: ["5006:5006"]

@@ -111,7 +111,7 @@ services:
     environment:
       DATABASE_URL: mysql+pymysql://root:andina_root_password@mysql-usuarios:3306/db_usuarios
       JWT_SECRET: andina-jwt-super-secret-2026
-    ports: ["5001:5001"]
+    expose: ["5001"]  # solo red interna: acceso externo únicamente vía api-gateway (RNF09)
     depends_on:
       mysql-usuarios:
         condition: service_healthy
@@ -122,7 +122,7 @@ services:
     container_name: andina-catalogo-service
     environment:
       DATABASE_URL: mysql+pymysql://root:andina_root_password@mysql-catalogo:3306/db_catalogo
-    ports: ["5002:5002"]
+    expose: ["5002"]  # solo red interna: acceso externo únicamente vía api-gateway (RNF09)
     depends_on:
       mysql-catalogo:
         condition: service_healthy
@@ -134,7 +134,7 @@ services:
     environment:
       DATABASE_URL: mysql+pymysql://root:andina_root_password@mysql-inventario:3306/db_inventario
       RABBITMQ_URL: amqp://andina:andina_rabbit_2026@rabbitmq:5672/
-    ports: ["5003:5003"]
+    expose: ["5003"]  # solo red interna: acceso externo únicamente vía api-gateway (RNF09)
     depends_on:
       mysql-inventario:
         condition: service_healthy
@@ -148,7 +148,7 @@ services:
     environment:
       DATABASE_URL: mysql+pymysql://root:andina_root_password@mysql-abastecimiento:3306/db_abastecimiento
       INVENTARIO_URL: http://inventario-service:5003
-    ports: ["5004:5004"]
+    expose: ["5004"]  # solo red interna: acceso externo únicamente vía api-gateway (RNF09)
     depends_on:
       mysql-abastecimiento:
         condition: service_healthy
@@ -164,7 +164,7 @@ services:
       INVENTARIO_URL: http://inventario-service:5003
       CATALOGO_URL: http://catalogo-service:5002
       RABBITMQ_URL: amqp://andina:andina_rabbit_2026@rabbitmq:5672/
-    ports: ["5005:5005"]
+    expose: ["5005"]  # solo red interna: acceso externo únicamente vía api-gateway (RNF09)
     depends_on:
       mysql-ventas:
         condition: service_healthy
@@ -185,7 +185,7 @@ services:
       INVENTARIO_URL: http://inventario-service:5003
       CATALOGO_URL: http://catalogo-service:5002
       VENTAS_URL: http://ventas-service:5005
-    ports: ["5006:5006"]
+    expose: ["5006"]  # solo red interna: acceso externo únicamente vía api-gateway (RNF09)
     depends_on:
       mysql-reportes:
         condition: service_healthy
@@ -193,11 +193,24 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  # ==================== FRONTEND WEB 3D ====================
-  frontend:
-    build: ./frontend
-    container_name: andina-frontend
-    ports: ["5173:80"]
+  # ==================== API GATEWAY (RNF09) ====================
+  api-gateway:
+    build: ./api-gateway
+    container_name: andina-api-gateway
+    environment:
+      APP_ENV: production
+      APP_DEBUG: "false"
+      JWT_SECRET: andina-jwt-super-secret-2026
+      JWT_VERIFY_MODE: local
+      JWT_VERIFY_URL: http://usuarios-service:5001/auth/verify
+      CORS_ALLOWED_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
+      USUARIOS_SERVICE_URL: http://usuarios-service:5001
+      CATALOGO_SERVICE_URL: http://catalogo-service:5002
+      INVENTARIO_SERVICE_URL: http://inventario-service:5003
+      ABASTECIMIENTO_SERVICE_URL: http://abastecimiento-service:5004
+      VENTAS_SERVICE_URL: http://ventas-service:5005
+      REPORTES_SERVICE_URL: http://reportes-service:5006
+    ports: ["8000:8000"]
     depends_on:
       - usuarios-service
       - catalogo-service
@@ -205,6 +218,19 @@ services:
       - abastecimiento-service
       - ventas-service
       - reportes-service
+    restart: unless-stopped
+
+  # ==================== FRONTEND WEB 3D ====================
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # El navegador solo habla con el Gateway, nunca con :5001-:5006
+        VITE_GATEWAY_URL: http://localhost:8000
+    container_name: andina-frontend
+    ports: ["5173:80"]
+    depends_on:
+      - api-gateway
     restart: unless-stopped
 
 volumes:
