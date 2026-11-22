@@ -4,6 +4,7 @@ import {
   BarChart3,
   Boxes,
   CheckCircle2,
+  KeyRound,
   LayoutDashboard,
   LogOut,
   Package,
@@ -13,7 +14,7 @@ import {
   Users,
   AlertCircle,
 } from 'lucide-react'
-import { apiFetch, checkAllHealth, setTraceListener } from './api'
+import { apiFetch, checkAllHealth, setTraceListener, setUnauthorizedListener } from './api'
 import DashboardView from './components/DashboardView'
 import DailySalesView from './components/DailySalesView'
 import PosView from './components/PosView'
@@ -52,10 +53,17 @@ export default function App() {
   const [usersList, setUsersList] = useState([])
   const [roles, setRoles] = useState([])
 
-  // Login
+  // Login & Recuperación / Cambio de contraseña (RF08)
   const [correo, setCorreo] = useState('admin@andina.com')
   const [contrasena, setContrasena] = useState('Admin123*')
   const [loggingIn, setLoggingIn] = useState(false)
+  const [recoveryModalOpen, setRecoveryModalOpen] = useState(false)
+  const [recoveryCorreo, setRecoveryCorreo] = useState('')
+  const [recoveryToken, setRecoveryToken] = useState('')
+  const [recoveryNewPass, setRecoveryNewPass] = useState('')
+  const [recoverySent, setRecoverySent] = useState(false)
+  const [pwdModalOpen, setPwdModalOpen] = useState(false)
+  const [pwdForm, setPwdForm] = useState({ actual: '', nueva: '' })
 
   const notify = (msg, isError = false) => {
     setToast({ msg, isError, id: Date.now() })
@@ -65,6 +73,12 @@ export default function App() {
   useEffect(() => {
     setTraceListener((entry) => {
       setTraces((prev) => [entry, ...prev].slice(0, 20))
+    })
+    setUnauthorizedListener(() => {
+      localStorage.removeItem('andina_token')
+      localStorage.removeItem('andina_user')
+      setUser(null)
+      notify('Sesión expirada o revocada. Ingresa nuevamente.', true)
     })
   }, [])
 
@@ -159,6 +173,57 @@ export default function App() {
     setUser(null)
   }
 
+  const handleRequestRecovery = async (e) => {
+    e.preventDefault()
+    try {
+      const res = await apiFetch('usuarios', '/auth/forgot-password', {
+        method: 'POST',
+        body: JSON.stringify({ correo: recoveryCorreo }),
+      })
+      setRecoverySent(true)
+      if (res.reset_token) {
+        setRecoveryToken(res.reset_token)
+        notify('Código de recuperación generado (entorno demo)')
+      } else {
+        notify(res.message || 'Revisa tu correo para continuar')
+      }
+    } catch (err) {
+      notify(err.message, true)
+    }
+  }
+
+  const handleResetPassword = async (e) => {
+    e.preventDefault()
+    try {
+      await apiFetch('usuarios', '/auth/reset-password', {
+        method: 'POST',
+        body: JSON.stringify({ token: recoveryToken, contrasena_nueva: recoveryNewPass }),
+      })
+      setRecoveryModalOpen(false)
+      setRecoverySent(false)
+      setRecoveryToken('')
+      setRecoveryNewPass('')
+      notify('Contraseña restablecida. Ya puedes iniciar sesión.')
+    } catch (err) {
+      notify(err.message, true)
+    }
+  }
+
+  const handleChangePassword = async (e) => {
+    e.preventDefault()
+    try {
+      await apiFetch('usuarios', '/auth/change-password', {
+        method: 'POST',
+        body: JSON.stringify({ contrasena_actual: pwdForm.actual, contrasena_nueva: pwdForm.nueva }),
+      })
+      setPwdModalOpen(false)
+      setPwdForm({ actual: '', nueva: '' })
+      notify('Contraseña actualizada correctamente')
+    } catch (err) {
+      notify(err.message, true)
+    }
+  }
+
   // ==================== LOGIN EDITORIAL ====================
   if (!user) {
     return (
@@ -221,6 +286,20 @@ export default function App() {
               {loggingIn ? 'Verificando...' : 'Ingresar al Sistema'}
             </button>
 
+            <div style={{ textAlign: 'right' }}>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => {
+                  setRecoveryCorreo(correo)
+                  setRecoverySent(false)
+                  setRecoveryModalOpen(true)
+                }}
+              >
+                ¿Olvidaste tu contraseña?
+              </button>
+            </div>
+
             <div style={{ borderTop: '1px solid var(--border)', paddingTop: '0.9rem' }}>
               <div style={{ fontSize: '0.75rem', color: 'var(--ink-muted)', marginBottom: '0.5rem' }}>
                 Accesos rápidos de demostración:
@@ -246,6 +325,36 @@ export default function App() {
             <span>{toast.msg}</span>
           </div>
         )}
+
+        <Modal open={recoveryModalOpen} onClose={() => setRecoveryModalOpen(false)} title="Recuperar Contraseña (RF08)">
+          {!recoverySent ? (
+            <form onSubmit={handleRequestRecovery} style={{ display: 'flex', flexDirection: 'column', gap: '0.9rem' }}>
+              <div className="field">
+                <label>Correo registrado</label>
+                <input type="email" value={recoveryCorreo} onChange={(e) => setRecoveryCorreo(e.target.value)} required />
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
+                <button type="button" className="btn btn-secondary" onClick={() => setRecoveryModalOpen(false)}>Cancelar</button>
+                <button type="submit" className="btn">Generar Token</button>
+              </div>
+            </form>
+          ) : (
+            <form onSubmit={handleResetPassword} style={{ display: 'flex', flexDirection: 'column', gap: '0.9rem' }}>
+              <div className="field">
+                <label>Token de recuperación</label>
+                <input value={recoveryToken} onChange={(e) => setRecoveryToken(e.target.value)} required />
+              </div>
+              <div className="field">
+                <label>Nueva contraseña (mín. 6 caracteres)</label>
+                <input type="password" minLength={6} value={recoveryNewPass} onChange={(e) => setRecoveryNewPass(e.target.value)} required />
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
+                <button type="button" className="btn btn-secondary" onClick={() => setRecoverySent(false)}>Atrás</button>
+                <button type="submit" className="btn">Restablecer Contraseña</button>
+              </div>
+            </form>
+          )}
+        </Modal>
       </div>
     )
   }
@@ -253,21 +362,25 @@ export default function App() {
   const activeAlertsCount = alerts.filter((a) => a.estado === 'ACTIVA').length
   const onlineServices = Object.values(health).filter(Boolean).length
   const totalServices = 6
+  const rol = user.rol || 'OPERADOR_BODEGA'
 
-  const navItems = [
-    { id: 'dashboard', label: 'Dashboard', subtitle: 'Resumen general de ventas e inventario', icon: LayoutDashboard },
-    { id: 'pos', label: 'Cobrar Venta', subtitle: 'Punto de venta con cálculo de devuelta y descuento de stock', icon: ShoppingCart },
-    { id: 'inventario', label: 'Inventario y Kardex', subtitle: 'Existencias por bodega, movimientos, traslados y devoluciones', icon: Boxes },
-    { id: 'catalogo', label: 'Catálogo', subtitle: 'Productos, categorías e importación Excel / CSV', icon: Package },
-    { id: 'abastecimiento', label: 'Abastecimiento', subtitle: 'Proveedores, órdenes de compra y recepción de mercancía', icon: Truck },
-    { id: 'reportes', label: 'Reportes y Alertas', subtitle: 'Valorización, rotación y umbrales mínimos de stock', icon: BarChart3, badge: activeAlertsCount },
-    { id: 'usuarios', label: 'Usuarios y Roles', subtitle: 'Control de cuentas y permisos de acceso', icon: Users },
+  const allNavItems = [
+    { id: 'dashboard', label: 'Dashboard', subtitle: 'Resumen general de ventas e inventario', icon: LayoutDashboard, roles: ['ADMINISTRADOR', 'OPERADOR_BODEGA', 'VENDEDOR'] },
+    { id: 'pos', label: 'Cobrar Venta', subtitle: 'Punto de venta con cálculo de devuelta y descuento de stock', icon: ShoppingCart, roles: ['ADMINISTRADOR', 'VENDEDOR'] },
+    { id: 'inventario', label: 'Inventario y Kardex', subtitle: 'Existencias por bodega, movimientos, traslados y devoluciones', icon: Boxes, roles: ['ADMINISTRADOR', 'OPERADOR_BODEGA', 'VENDEDOR'] },
+    { id: 'catalogo', label: 'Catálogo', subtitle: 'Productos, categorías e importación Excel / CSV', icon: Package, roles: ['ADMINISTRADOR', 'OPERADOR_BODEGA', 'VENDEDOR'] },
+    { id: 'abastecimiento', label: 'Abastecimiento', subtitle: 'Proveedores, órdenes de compra y recepción de mercancía', icon: Truck, roles: ['ADMINISTRADOR', 'OPERADOR_BODEGA'] },
+    { id: 'reportes', label: 'Reportes y Alertas', subtitle: 'Valorización, rotación y umbrales mínimos de stock', icon: BarChart3, badge: activeAlertsCount, roles: ['ADMINISTRADOR', 'OPERADOR_BODEGA', 'VENDEDOR'] },
+    { id: 'usuarios', label: 'Usuarios y Roles', subtitle: 'Control de cuentas y permisos de acceso', icon: Users, roles: ['ADMINISTRADOR'] },
   ]
+  const navItems = allNavItems.filter((item) => item.roles.includes(rol))
+  const effectiveTab =
+    tab === 'ventas-hoy' || navItems.some((n) => n.id === tab) ? tab : 'dashboard'
 
   const currentNav =
-    tab === 'ventas-hoy'
+    effectiveTab === 'ventas-hoy'
       ? { label: 'Ventas del Día', subtitle: 'Detalle de productos vendidos, valor y hora exacta realizada' }
-      : navItems.find((n) => n.id === tab) || navItems[0]
+      : navItems.find((n) => n.id === effectiveTab) || navItems[0]
 
   return (
     <div className="app-shell">
@@ -334,6 +447,16 @@ export default function App() {
                 type="button"
                 className="btn btn-secondary btn-sm"
                 style={{ padding: '0.2rem 0.45rem', minBlockSize: '1.65rem' }}
+                onClick={() => setPwdModalOpen(true)}
+                title="Cambiar contraseña"
+                aria-label="Cambiar contraseña"
+              >
+                <KeyRound size={13} />
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                style={{ padding: '0.2rem 0.45rem', minBlockSize: '1.65rem' }}
                 onClick={handleLogout}
                 title="Cerrar sesión"
                 aria-label="Cerrar sesión"
@@ -344,7 +467,7 @@ export default function App() {
           </div>
         </header>
 
-        {tab === 'dashboard' && (
+        {effectiveTab === 'dashboard' && (
           <DashboardView
             dashboard={dashboard}
             products={products}
@@ -356,7 +479,7 @@ export default function App() {
           />
         )}
 
-        {tab === 'ventas-hoy' && (
+        {effectiveTab === 'ventas-hoy' && (
           <DailySalesView
             sales={sales}
             products={products}
@@ -366,7 +489,7 @@ export default function App() {
           />
         )}
 
-        {tab === 'pos' && (
+        {effectiveTab === 'pos' && (
           <PosView
             user={user}
             products={products}
@@ -374,12 +497,13 @@ export default function App() {
             warehouses={warehouses}
             stocks={stocks}
             sales={sales}
+            usersList={usersList}
             onSaleCompleted={handleAfterMutation}
             notify={notify}
           />
         )}
 
-        {tab === 'inventario' && (
+        {effectiveTab === 'inventario' && (
           <InventoryView
             user={user}
             products={products}
@@ -387,12 +511,13 @@ export default function App() {
             stocks={stocks}
             movements={movements}
             returnsList={returnsList}
+            usersList={usersList}
             onUpdated={handleAfterMutation}
             notify={notify}
           />
         )}
 
-        {tab === 'catalogo' && (
+        {effectiveTab === 'catalogo' && (
           <CatalogView
             user={user}
             products={products}
@@ -403,7 +528,7 @@ export default function App() {
           />
         )}
 
-        {tab === 'abastecimiento' && (
+        {effectiveTab === 'abastecimiento' && (
           <ProcurementView
             user={user}
             suppliers={suppliers}
@@ -415,8 +540,9 @@ export default function App() {
           />
         )}
 
-        {tab === 'reportes' && (
+        {effectiveTab === 'reportes' && (
           <ReportsView
+            user={user}
             products={products}
             stocks={stocks}
             movements={movements}
@@ -428,7 +554,7 @@ export default function App() {
           />
         )}
 
-        {tab === 'usuarios' && (
+        {effectiveTab === 'usuarios' && (
           <UsersView
             usersList={usersList}
             roles={roles}
@@ -437,6 +563,23 @@ export default function App() {
           />
         )}
       </main>
+
+      <Modal open={pwdModalOpen} onClose={() => setPwdModalOpen(false)} title="Cambiar Contraseña (RF08)">
+        <form onSubmit={handleChangePassword} style={{ display: 'flex', flexDirection: 'column', gap: '0.9rem' }}>
+          <div className="field">
+            <label>Contraseña actual</label>
+            <input type="password" value={pwdForm.actual} onChange={(e) => setPwdForm({ ...pwdForm, actual: e.target.value })} required />
+          </div>
+          <div className="field">
+            <label>Nueva contraseña (mín. 6 caracteres)</label>
+            <input type="password" minLength={6} value={pwdForm.nueva} onChange={(e) => setPwdForm({ ...pwdForm, nueva: e.target.value })} required />
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
+            <button type="button" className="btn btn-secondary" onClick={() => setPwdModalOpen(false)}>Cancelar</button>
+            <button type="submit" className="btn">Actualizar Contraseña</button>
+          </div>
+        </form>
+      </Modal>
 
       {/* Modal discreto bajo demanda para monitoreo de los 6 microservicios */}
       <Modal

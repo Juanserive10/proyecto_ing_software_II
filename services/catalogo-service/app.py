@@ -1,17 +1,38 @@
 import csv
 import io
+import logging
 import os
+import time
+import uuid
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, g
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
 from flasgger import Swagger
 from openpyxl import load_workbook
 
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [catalogo-service] %(levelname)s: %(message)s")
+logger = logging.getLogger("catalogo-service")
+
 app = Flask(__name__)
 CORS(app)
+
+
+@app.before_request
+def start_request_trace():
+    g.start_time = time.perf_counter()
+    g.request_id = request.headers.get("X-Request-Id") or str(uuid.uuid4())
+
+
+@app.after_request
+def log_request_trace(response):
+    ms = round((time.perf_counter() - getattr(g, "start_time", time.perf_counter())) * 1000, 1)
+    req_id = getattr(g, "request_id", "-")
+    response.headers["X-Request-Id"] = req_id
+    logger.info("request_id=%s method=%s path=%s status=%s ms=%s", req_id, request.method, request.path, response.status_code, ms)
+    return response
 
 app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv(
     "DATABASE_URL", "sqlite:///catalogo.db"
@@ -569,6 +590,7 @@ def list_imports():
 
 
 @app.get("/imports/<int:id_importacion>")
+@app.get("/products/import/<int:id_importacion>")
 def get_import(id_importacion):
     """Consultar detalle de una importación (RF17)
     ---

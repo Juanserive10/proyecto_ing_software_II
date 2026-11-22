@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import time
 import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -8,11 +9,11 @@ from typing import List, Optional
 
 import httpx
 import pika
-from fastapi import FastAPI, Depends, HTTPException, Query
+from fastapi import FastAPI, Depends, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from sqlalchemy import create_engine, Column, Integer, String, Numeric, DateTime, ForeignKey
-from sqlalchemy.orm import sessionmaker, declarative_base, relationship, Session
+from sqlalchemy.orm import sessionmaker, declarative_base, relationship, selectinload, Session
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [ventas-service] %(levelname)s: %(message)s")
 logger = logging.getLogger("ventas-service")
@@ -24,9 +25,10 @@ RABBITMQ_URL = os.getenv("RABBITMQ_URL", "")
 EXCHANGE_NAME = os.getenv("RABBITMQ_EXCHANGE", "andina.events")
 
 connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
-engine = create_engine(DATABASE_URL, pool_pre_ping=True, connect_args=connect_args)
+engine = create_engine(DATABASE_URL, pool_pre_ping=True, pool_size=20, max_overflow=30, connect_args=connect_args)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
+http_client = httpx.Client(timeout=8.0, limits=httpx.Limits(max_connections=100, max_keepalive_connections=20))
 
 
 # ==================== MODELOS (ER: Base de datos Ventas) ====================
@@ -111,6 +113,18 @@ app.add_middleware(
 )
 
 
+@app.middleware("http")
+async def trace_requests(request: Request, call_next):
+    req_id = request.headers.get("X-Request-Id") or str(uuid.uuid4())
+    request.state.request_id = req_id
+    started = time.perf_counter()
+    response = await call_next(request)
+    ms = round((time.perf_counter() - started) * 1000, 1)
+    response.headers["X-Request-Id"] = req_id
+    logger.info("request_id=%s method=%s path=%s status=%s ms=%s", req_id, request.method, request.url.path, response.status_code, ms)
+    return response
+
+
 def get_db():
     db = SessionLocal()
     try:
@@ -167,9 +181,10 @@ def list_sales(
     estado: Optional[str] = Query(None),
     fecha_desde: Optional[str] = Query(None),
     fecha_hasta: Optional[str] = Query(None),
+    limit: int = Query(100, ge=1, le=1000),
     db: Session = Depends(get_db),
 ):
-    query = db.query(Venta)
+    query = db.query(Venta).options(selectinload(Venta.detalles))
     if id_usuario is not None:
         query = query.filter(Venta.id_usuario == id_usuario)
     if metodo_pago:
@@ -181,7 +196,7 @@ def list_sales(
     if fecha_hasta:
         query = query.filter(Venta.fecha <= datetime.fromisoformat(fecha_hasta))
 
-    ventas = query.order_by(Venta.fecha.desc(), Venta.id_venta.desc()).all()
+    ventas = query.order_by(Venta.fecha.desc(), Venta.id_venta.desc()).limit(limit).all()
     return [serialize_venta(v) for v in ventas]
 
 
@@ -194,7 +209,9 @@ def get_sale(id_venta: int, db: Session = Depends(get_db)):
 
 
 @app.post("/sales", status_code=201)
-def create_sale(payload: VentaCreate, db: Session = Depends(get_db)):
+def create_sale(payload: VentaCreate, request: Request, db: Session = Depends(get_db)):
+    req_id = getattr(request.state, "request_id", str(uuid.uuid4()))
+    trace_headers = {"X-Request-Id": req_id}
     idem_key = payload.clave_idempotencia or f"VTA-{uuid.uuid4().hex[:12]}"
     existing = db.query(Venta).filter_by(clave_idempotencia=idem_key).first()
     if existing:
@@ -202,20 +219,19 @@ def create_sale(payload: VentaCreate, db: Session = Depends(get_db)):
 
     # 1. Resolver precios desde Catálogo si no fueron enviados
     resolved_items = []
-    with httpx.Client(timeout=8.0) as client:
-        for item in payload.items:
-            precio = item.precio_unitario
-            if precio is None:
-                try:
-                    r = client.get(f"{CATALOGO_URL}/products/{item.id_producto}")
-                    if r.status_code != 200:
-                        raise HTTPException(status_code=404, detail=f"Producto {item.id_producto} no encontrado en Catálogo")
-                    precio = Decimal(str(r.json()["precio_venta"]))
-                except HTTPException:
-                    raise
-                except Exception as exc:
-                    raise HTTPException(status_code=502, detail=f"Error consultando Catálogo: {exc}")
-            resolved_items.append((item.id_producto, item.cantidad, precio))
+    for item in payload.items:
+        precio = item.precio_unitario
+        if precio is None:
+            try:
+                r = http_client.get(f"{CATALOGO_URL}/products/{item.id_producto}", headers=trace_headers)
+                if r.status_code != 200:
+                    raise HTTPException(status_code=404, detail=f"Producto {item.id_producto} no encontrado en Catálogo")
+                precio = Decimal(str(r.json()["precio_venta"]))
+            except HTTPException:
+                raise
+            except Exception as exc:
+                raise HTTPException(status_code=502, detail=f"Error consultando Catálogo: {exc}")
+        resolved_items.append((item.id_producto, item.cantidad, precio))
 
     # 2. Registrar Venta en estado PENDIENTE (numero derivado de PK autoincremental para evitar colisiones concurrentes)
     subtotal = sum(cant * prec for _, cant, prec in resolved_items)
@@ -250,47 +266,47 @@ def create_sale(payload: VentaCreate, db: Session = Depends(get_db)):
     # 3. Flujo síncrono Ventas -> Inventario (SALIDA por cada ítem con compensación Saga si alguno falla)
     descontados = []
     try:
-        with httpx.Client(timeout=8.0) as client:
-            for idx, (id_prod, cant, prec) in enumerate(resolved_items):
-                resp = client.post(
+        for idx, (id_prod, cant, prec) in enumerate(resolved_items):
+            resp = http_client.post(
+                f"{INVENTARIO_URL}/inventory/movements",
+                headers=trace_headers,
+                json={
+                    "tipo": "SALIDA",
+                    "id_producto": id_prod,
+                    "cantidad": float(cant),
+                    "id_bodega_origen": payload.id_bodega,
+                    "id_usuario": payload.id_usuario,
+                    "tipo_referencia": "VENTA",
+                    "id_referencia": venta.id_venta,
+                    "clave_idempotencia": f"{idem_key}-ITEM-{idx}",
+                    "precio_referencia": float(prec),
+                },
+            )
+            if resp.status_code not in (200, 201):
+                detail_msg = resp.json().get("detail", resp.text) if resp.headers.get("content-type", "").startswith("application/json") else resp.text
+                raise RuntimeError(f"Stock/Inventario rechazó producto {id_prod}: {detail_msg}")
+            descontados.append((idx, id_prod, cant, prec))
+    except Exception as exc:
+        # Compensación (Saga): devolver al stock los ítems que sí alcanzaron a descontarse
+        for idx, id_prod, cant, prec in descontados:
+            try:
+                http_client.post(
                     f"{INVENTARIO_URL}/inventory/movements",
+                    headers=trace_headers,
                     json={
-                        "tipo": "SALIDA",
+                        "tipo": "ENTRADA",
                         "id_producto": id_prod,
                         "cantidad": float(cant),
-                        "id_bodega_origen": payload.id_bodega,
+                        "id_bodega_destino": payload.id_bodega,
                         "id_usuario": payload.id_usuario,
-                        "tipo_referencia": "VENTA",
+                        "tipo_referencia": "COMPENSACION_VENTA",
                         "id_referencia": venta.id_venta,
-                        "clave_idempotencia": f"{idem_key}-ITEM-{idx}",
+                        "clave_idempotencia": f"{idem_key}-COMP-{idx}",
                         "precio_referencia": float(prec),
                     },
                 )
-                if resp.status_code not in (200, 201):
-                    detail_msg = resp.json().get("detail", resp.text) if resp.headers.get("content-type", "").startswith("application/json") else resp.text
-                    raise RuntimeError(f"Stock/Inventario rechazó producto {id_prod}: {detail_msg}")
-                descontados.append((idx, id_prod, cant, prec))
-    except Exception as exc:
-        # Compensación (Saga): devolver al stock los ítems que sí alcanzaron a descontarse
-        with httpx.Client(timeout=5.0) as client:
-            for idx, id_prod, cant, prec in descontados:
-                try:
-                    client.post(
-                        f"{INVENTARIO_URL}/inventory/movements",
-                        json={
-                            "tipo": "ENTRADA",
-                            "id_producto": id_prod,
-                            "cantidad": float(cant),
-                            "id_bodega_destino": payload.id_bodega,
-                            "id_usuario": payload.id_usuario,
-                            "tipo_referencia": "COMPENSACION_VENTA",
-                            "id_referencia": venta.id_venta,
-                            "clave_idempotencia": f"{idem_key}-COMP-{idx}",
-                            "precio_referencia": float(prec),
-                        },
-                    )
-                except Exception as comp_exc:
-                    logger.error("Error en compensación de inventario para venta %s: %s", venta.id_venta, comp_exc)
+            except Exception as comp_exc:
+                logger.error("Error en compensación de inventario para venta %s: %s", venta.id_venta, comp_exc)
 
         venta.estado = "RECHAZADA"
         db.commit()

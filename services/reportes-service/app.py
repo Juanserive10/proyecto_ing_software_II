@@ -3,13 +3,14 @@ import logging
 import os
 import threading
 import time
+import uuid
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from typing import Optional
 
 import httpx
 import pika
-from fastapi import FastAPI, Depends, HTTPException, Query
+from fastapi import FastAPI, Depends, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from sqlalchemy import create_engine, Column, Integer, String, Boolean, Numeric, Date, DateTime, ForeignKey
@@ -290,6 +291,17 @@ app.add_middleware(
 )
 
 
+@app.middleware("http")
+async def trace_requests(request: Request, call_next):
+    req_id = request.headers.get("X-Request-Id") or str(uuid.uuid4())
+    started = time.perf_counter()
+    response = await call_next(request)
+    ms = round((time.perf_counter() - started) * 1000, 1)
+    response.headers["X-Request-Id"] = req_id
+    logger.info("request_id=%s method=%s path=%s status=%s ms=%s", req_id, request.method, request.url.path, response.status_code, ms)
+    return response
+
+
 def get_db():
     db = SessionLocal()
     try:
@@ -383,7 +395,7 @@ def sync_from_services(db: Session = Depends(get_db)):
             logger.warning("No se pudo leer Inventario en sync: %s", exc)
 
         try:
-            r_vta = client.get(f"{VENTAS_URL}/sales", params={"estado": "CONFIRMADA"})
+            r_vta = client.get(f"{VENTAS_URL}/sales", params={"estado": "CONFIRMADA", "limit": 1000})
             if r_vta.status_code == 200:
                 agg = {}
                 for v in r_vta.json():
@@ -402,6 +414,54 @@ def sync_from_services(db: Session = Depends(get_db)):
                     synced["ventas"] += 1
         except Exception as exc:
             logger.warning("No se pudo leer Ventas en sync: %s", exc)
+
+        try:
+            r_mov = client.get(f"{INVENTARIO_URL}/inventory/movements", params={"limit": 500})
+            if r_mov.status_code == 200:
+                mov_agg = {}
+                for m in r_mov.json():
+                    occ_str = (m.get("ocurrido_en") or "")[:10]
+                    if occ_str:
+                        occ_d = date.fromisoformat(occ_str)
+                        if not (p_ini <= occ_d <= p_fin):
+                            continue
+                    pid = int(m["id_producto"])
+                    cant = Decimal(str(m["cantidad"]))
+                    tipo = str(m.get("tipo", "")).upper()
+                    if tipo == "TRASLADO":
+                        pairs = [
+                            (m.get("id_bodega_origen"), Decimal("0"), cant),
+                            (m.get("id_bodega_destino"), cant, Decimal("0")),
+                        ]
+                    elif tipo in ("ENTRADA", "AJUSTE_POSITIVO", "DEVOLUCION_CLIENTE"):
+                        pairs = [(m.get("id_bodega_destino"), cant, Decimal("0"))]
+                    else:
+                        pairs = [(m.get("id_bodega_origen"), Decimal("0"), cant)]
+
+                    for bid, ent, sal in pairs:
+                        if not bid:
+                            continue
+                        prev_e, prev_s = mov_agg.get((pid, int(bid)), (Decimal("0"), Decimal("0")))
+                        mov_agg[(pid, int(bid))] = (prev_e + ent, prev_s + sal)
+
+                for (pid, bid), (ent, sal) in mov_agg.items():
+                    base_rot = ent if ent > 0 else Decimal("1")
+                    rot = (sal / base_rot).quantize(Decimal("0.0001"))
+                    rm = db.query(ResumenMovimiento).filter_by(
+                        id_producto=pid, id_bodega=bid, periodo_inicio=p_ini, periodo_fin=p_fin
+                    ).first()
+                    if not rm:
+                        db.add(ResumenMovimiento(
+                            id_producto=pid, id_bodega=bid, periodo_inicio=p_ini, periodo_fin=p_fin,
+                            entradas=ent, salidas=sal, rotacion=rot, actualizado_en=now,
+                        ))
+                    else:
+                        rm.entradas = ent
+                        rm.salidas = sal
+                        rm.rotacion = rot
+                        rm.actualizado_en = now
+        except Exception as exc:
+            logger.warning("No se pudo leer Movimientos en sync: %s", exc)
 
     db.commit()
     return {"message": "Sincronización completada", "synced": synced}
@@ -574,6 +634,7 @@ def list_alerts(estado: Optional[str] = Query(None), db: Session = Depends(get_d
 
 
 @app.post("/alerts/{id_alerta}/ack")
+@app.post("/alerts/{id_alerta}/acknowledge")
 def acknowledge_alert(id_alerta: int, db: Session = Depends(get_db)):
     a = db.query(Alerta).filter_by(id_alerta=id_alerta).first()
     if not a:
