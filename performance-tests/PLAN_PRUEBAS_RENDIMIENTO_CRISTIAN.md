@@ -51,31 +51,29 @@ python3 performance-tests/resumen_cristian.py     # regenera RESULTADOS_CRISTIAN
 
 La evidencia de cada escenario queda en `performance-tests/resultados_cristian/`: `<escenario>_stats.csv`, `_stats_history.csv`, `_failures.csv`, `_exceptions.csv`, el reporte `.html` interactivo y el log `.log` de consola.
 
-## Análisis de resultados preliminares (21-nov-2026)
+## Análisis de resultados (22-nov-2026)
 
-Tablas completas en [`RESULTADOS_CRISTIAN.md`](RESULTADOS_CRISTIAN.md). Entorno: Docker Compose en un portátil de 16 hilos, con Locust en la misma máquina.
+Tablas completas en [`RESULTADOS_CRISTIAN.md`](RESULTADOS_CRISTIAN.md) (actualizado tras corregir `SEARCH_TERMS` al catálogo real de ferretería y aumentar `usuarios-service` a `--workers 4`). Entorno: Docker Compose en un portátil de 16 hilos, con Locust en la misma máquina.
 
 | Escenario | Peticiones | Errores | P50 | P95 | req/s | ¿Cumple RNF06? |
 | :--- | ---: | ---: | ---: | ---: | ---: | :---: |
-| Carga normal (30 u) | 1 903 | 0 % | 16 ms | 110 ms | 31.7 | ✅ |
-| Carga pico (100 u) | 6 184 | 0 % | 15 ms | 190 ms | 102.8 | ✅ |
-| Estrés (hasta 300 u) | 13 242 | 0 % | 300 ms | 1 700 ms | 109.9 | ✅ (en el límite) |
-| Spike (20→250→20 u) | 4 228 | 0 % | 550 ms | 4 900 ms* | 56.2 | ⚠️ durante el pico |
-| Resistencia (40 u, 3 min) | 7 472 | 0 % | 16 ms | 110 ms | 41.4 | ✅ |
+| Carga normal (30 u) | 1 935 | 0 % | 12 ms | 120 ms | 32.22 | ✅ |
+| Carga pico (100 u) | 6 293 | 0 % | 14 ms | 130 ms | 104.81 | ✅ |
+| Estrés (hasta 300 u) | 16 275 | 0 % | 120 ms | 1 000 ms | 135.26 | ✅ |
+| Spike (20→250→20 u) | 5 699 | 0 % | 190 ms | 2 600 ms* | 75.80 | ⚠️ agregado por SETUP (todas PC01–PC15 ✅) |
+| Resistencia (40 u, 3 min) | 7 519 | 0 % | 12 ms | 110 ms | 41.70 | ✅ |
 
-\* El P95 agregado del spike incluye las filas `SETUP login inicial` de los 230 usuarios que entran casi a la vez. Por prueba, el P95 se mantiene entre 830 y 1 700 ms.
+\* El P95 agregado del spike incluye las filas `SETUP login inicial` de los 230 usuarios que entran casi a la vez. Por prueba (`PC01–PC15`), el P95 se mantiene entre **360 y 1 000 ms** (todas cumplen `< 2000 ms`).
 
 **Hallazgos**
 
-1. **Ninguna petición falló** en los 5 escenarios (≈33 000 peticiones). El Gateway nunca devolvió 5xx y siempre rechazó con 401 las peticiones sin JWT (PC08).
-2. **El costo del Gateway es bajo.** Con carga normal, PC08 (que el Gateway responde sin llamar al microservicio) tarda unos 8 ms. Las consultas de catálogo que sí pasan al servicio están entre 15 y 20 ms, así que el salto adicional que añade el Gateway es de pocos milisegundos.
-3. **El cuello de botella es `usuarios-service` en login y registro.** PC01–PC03 tienen una mediana de unos 110 ms incluso sin carga, porque el hash de contraseñas es costoso por diseño (RNF07). El servicio corre con solo 2 workers síncronos de gunicorn. En estrés, las pruebas de usuarios llegan a un P95 de unos 1 800 ms, frente a unos 1 200 ms en las de catálogo.
-4. **Punto de saturación cerca de 150 req/s** (unos 200 usuarios concurrentes). A partir de ahí el throughput deja de crecer y lo que aumenta es la latencia, sin errores. La cola se forma en los workers de php-fpm del Gateway (32) que esperan a usuarios-service: por eso hasta PC08 sube a una mediana de 150 ms en estrés.
-5. **Recuperación tras el pico.** Cuando el spike baja de 250 a 20 usuarios, el throughput vuelve a unos 20 req/s y la latencia instantánea se normaliza. El P95 acumulado del CSV solo baja despacio porque arrastra los valores del pico.
-6. **Resistencia estable.** Durante 3 minutos el P95 se mantuvo en unos 110 ms y el throughput en unos 41 req/s, sin tendencia al alza: no se observa degradación ni fugas.
+1. **Ninguna petición falló** en los 5 escenarios (37 721 peticiones totales). El Gateway nunca devolvió 5xx y siempre rechazó con 401 las peticiones sin JWT (`PC08`).
+2. **El costo del Gateway es bajo.** Con carga normal, `PC08` (que el Gateway responde sin llamar al microservicio) tarda unos 5 ms. Las consultas de catálogo que sí pasan al servicio están entre 11 y 18 ms.
+3. **Subir `usuarios-service` a 4 workers de gunicorn mejoró claramente el comportamiento bajo carga.** En estrés (hasta 300 usuarios), el P95 agregado bajó a **1 000 ms** y el P95 de `PC01–PC03` quedó en **1 100–1 200 ms**.
+4. **Recuperación tras el pico y resistencia estable.** En resistencia (3 minutos) el P95 se mantuvo en **110 ms** sin degradación ni fugas.
 
-**Optimizaciones propuestas (para validar en la Entrega 4)**
+**Optimizaciones adicionales propuestas (para validar en la entrega final)**
 
-- Subir los workers de gunicorn de `usuarios-service` (por ejemplo `--workers 4 --threads 4`) o escalarlo con el HPA de Kubernetes, ya que es el servicio que más carga recibe en login y registro.
-- En modo `JWT_VERIFY_MODE=local` el Gateway valida el JWT sin llamar a `/auth/verify`, así que no le añade carga a usuarios-service. Conviene mantener ese modo en producción.
-- Servir el Gateway con un runtime persistente (Laravel Octane / FrankenPHP) o aumentar `pm.max_children` para que más peticiones se atiendan en paralelo mientras esperan a los servicios.
+- Escalar `usuarios-service` horizontalmente o usar workers asíncronos/híbridos si los logins simultáneos superan los 250 usuarios en ráfaga.
+- Mantener `JWT_VERIFY_MODE=local` en el Gateway para no añadir carga a `usuarios-service` en cada consulta.
+- Servir el Gateway con un runtime persistente (Laravel Octane / FrankenPHP) o ajustar `pm.max_children` si aumenta la concurrencia de otros servicios.

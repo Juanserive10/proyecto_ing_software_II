@@ -220,7 +220,7 @@ services:
       - reportes-service
     restart: unless-stopped
 
-  # ==================== FRONTEND WEB 3D ====================
+  # ==================== FRONTEND WEB ====================
   frontend:
     build:
       context: ./frontend

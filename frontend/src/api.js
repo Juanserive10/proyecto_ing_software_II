@@ -18,6 +18,11 @@ export function setTraceListener(fn) {
   traceListener = fn
 }
 
+let unauthorizedListener = null
+export function setUnauthorizedListener(fn) {
+  unauthorizedListener = fn
+}
+
 export async function apiFetch(serviceKey, path, options = {}) {
   const base = SERVICES[serviceKey]
   const url = `${base}${path}`
@@ -52,6 +57,14 @@ export async function apiFetch(serviceKey, path, options = {}) {
     }
 
     if (!res.ok) {
+      if (
+        res.status === 401 &&
+        unauthorizedListener &&
+        !path.startsWith('/auth/login') &&
+        !path.startsWith('/auth/change-password')
+      ) {
+        unauthorizedListener()
+      }
       const msg =
         (data && data.detail && (typeof data.detail === 'string' ? data.detail : data.detail.reason || data.detail.message)) ||
         (data && data.error) ||

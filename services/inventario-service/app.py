@@ -1,12 +1,14 @@
 import json
 import logging
 import os
+import time
+import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Optional
 
 import pika
-from fastapi import FastAPI, Depends, HTTPException, Query
+from fastapi import FastAPI, Depends, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from sqlalchemy import (
@@ -20,6 +22,7 @@ from sqlalchemy import (
     ForeignKey,
     UniqueConstraint,
 )
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker, declarative_base, Session
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [inventario-service] %(levelname)s: %(message)s")
@@ -97,6 +100,13 @@ class BodegaCreate(BaseModel):
     activo: bool = True
 
 
+class BodegaUpdate(BaseModel):
+    codigo: Optional[str] = Field(None, min_length=2, max_length=40)
+    nombre: Optional[str] = Field(None, min_length=2, max_length=120)
+    ubicacion: Optional[str] = None
+    activo: Optional[bool] = None
+
+
 class MovimientoCreate(BaseModel):
     tipo: str = Field(..., description="ENTRADA, SALIDA, AJUSTE_POSITIVO, AJUSTE_NEGATIVO")
     id_producto: int
@@ -169,6 +179,17 @@ app.add_middleware(
 )
 
 
+@app.middleware("http")
+async def trace_requests(request: Request, call_next):
+    req_id = request.headers.get("X-Request-Id") or str(uuid.uuid4())
+    started = time.perf_counter()
+    response = await call_next(request)
+    ms = round((time.perf_counter() - started) * 1000, 1)
+    response.headers["X-Request-Id"] = req_id
+    logger.info("request_id=%s method=%s path=%s status=%s ms=%s", req_id, request.method, request.url.path, response.status_code, ms)
+    return response
+
+
 def get_db():
     db = SessionLocal()
     try:
@@ -223,18 +244,28 @@ Base.metadata.create_all(bind=engine)
 seed_data()
 
 
-def get_or_create_stock(db: Session, id_bodega: int, id_producto: int) -> Stock:
-    stock = db.query(Stock).filter_by(id_bodega=id_bodega, id_producto=id_producto).first()
+def get_or_create_stock(db: Session, id_bodega: int, id_producto: int, lock: bool = True) -> Stock:
+    q = db.query(Stock).filter_by(id_bodega=id_bodega, id_producto=id_producto)
+    if lock and not DATABASE_URL.startswith("sqlite"):
+        q = q.with_for_update()
+    stock = q.first()
     if not stock:
-        stock = Stock(
-            id_bodega=id_bodega,
-            id_producto=id_producto,
-            cantidad_disponible=Decimal("0.00"),
-            cantidad_no_vendible=Decimal("0.00"),
-            version=1,
-        )
-        db.add(stock)
-        db.flush()
+        try:
+            with db.begin_nested():
+                stock = Stock(
+                    id_bodega=id_bodega,
+                    id_producto=id_producto,
+                    cantidad_disponible=Decimal("0.00"),
+                    cantidad_no_vendible=Decimal("0.00"),
+                    version=1,
+                )
+                db.add(stock)
+                db.flush()
+        except IntegrityError:
+            q = db.query(Stock).filter_by(id_bodega=id_bodega, id_producto=id_producto)
+            if lock and not DATABASE_URL.startswith("sqlite"):
+                q = q.with_for_update()
+            stock = q.first()
     return stock
 
 
@@ -297,6 +328,48 @@ def create_warehouse(payload: BodegaCreate, db: Session = Depends(get_db)):
         raise HTTPException(status_code=409, detail=f"Ya existe una bodega con código {code}")
     b = Bodega(codigo=code, nombre=payload.nombre.strip(), ubicacion=payload.ubicacion, activo=payload.activo)
     db.add(b)
+    db.commit()
+    db.refresh(b)
+    return {
+        "id_bodega": b.id_bodega,
+        "codigo": b.codigo,
+        "nombre": b.nombre,
+        "ubicacion": b.ubicacion,
+        "activo": b.activo,
+    }
+
+
+@app.get("/warehouses/{id_bodega}")
+def get_warehouse(id_bodega: int, db: Session = Depends(get_db)):
+    b = db.query(Bodega).get(id_bodega)
+    if not b:
+        raise HTTPException(status_code=404, detail="Bodega no encontrada")
+    return {
+        "id_bodega": b.id_bodega,
+        "codigo": b.codigo,
+        "nombre": b.nombre,
+        "ubicacion": b.ubicacion,
+        "activo": b.activo,
+    }
+
+
+@app.patch("/warehouses/{id_bodega}")
+def update_warehouse(id_bodega: int, payload: BodegaUpdate, db: Session = Depends(get_db)):
+    b = db.query(Bodega).get(id_bodega)
+    if not b:
+        raise HTTPException(status_code=404, detail="Bodega no encontrada")
+    if payload.codigo is not None:
+        code = payload.codigo.strip().upper()
+        existing = db.query(Bodega).filter_by(codigo=code).first()
+        if existing and existing.id_bodega != id_bodega:
+            raise HTTPException(status_code=409, detail=f"Ya existe una bodega con código {code}")
+        b.codigo = code
+    if payload.nombre is not None:
+        b.nombre = payload.nombre.strip()
+    if payload.ubicacion is not None:
+        b.ubicacion = payload.ubicacion
+    if payload.activo is not None:
+        b.activo = payload.activo
     db.commit()
     db.refresh(b)
     return {
@@ -430,13 +503,19 @@ def create_transfer(payload: TrasladoCreate, db: Session = Depends(get_db)):
         if existing:
             return {"idempotent": True, "movimiento": serialize_mov(existing)}
 
-    stock_origen = get_or_create_stock(db, payload.id_bodega_origen, payload.id_producto)
+    # Bloquear filas de stock en orden determinístico por id_bodega para evitar deadlocks
+    if payload.id_bodega_origen < payload.id_bodega_destino:
+        stock_origen = get_or_create_stock(db, payload.id_bodega_origen, payload.id_producto)
+        stock_destino = get_or_create_stock(db, payload.id_bodega_destino, payload.id_producto)
+    else:
+        stock_destino = get_or_create_stock(db, payload.id_bodega_destino, payload.id_producto)
+        stock_origen = get_or_create_stock(db, payload.id_bodega_origen, payload.id_producto)
+
     if Decimal(stock_origen.cantidad_disponible) < payload.cantidad:
         raise HTTPException(
             status_code=409,
             detail=f"Stock insuficiente en bodega origen ({float(stock_origen.cantidad_disponible)} disponible)",
         )
-    stock_destino = get_or_create_stock(db, payload.id_bodega_destino, payload.id_producto)
 
     now = datetime.now(timezone.utc)
     stock_origen.cantidad_disponible = Decimal(stock_origen.cantidad_disponible) - payload.cantidad

@@ -11,7 +11,7 @@ export default function UsersView({ usersList, roles, onUpdated, notify }) {
   const handleCreateUser = async (e) => {
     e.preventDefault()
     try {
-      await apiFetch('usuarios', '/auth/register', {
+      await apiFetch('usuarios', '/users', {
         method: 'POST',
         body: JSON.stringify({
           ...form,

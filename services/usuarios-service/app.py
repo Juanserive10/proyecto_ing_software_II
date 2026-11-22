@@ -1,15 +1,21 @@
 import os
+import logging
+import time
+import uuid
 from datetime import datetime, timedelta, timezone
 import hashlib
 import secrets
 from functools import wraps
 
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, g
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
 from flasgger import Swagger
 from werkzeug.security import generate_password_hash, check_password_hash
 import jwt
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [usuarios-service] %(levelname)s: %(message)s")
+logger = logging.getLogger("usuarios-service")
 
 app = Flask(__name__)
 CORS(app)
@@ -129,6 +135,33 @@ def auth_required(f):
         request.raw_token = token
         return f(*args, **kwargs)
     return wrapper
+
+
+def role_required(*allowed_roles):
+    def decorator(f):
+        @wraps(f)
+        def wrapper(*args, **kwargs):
+            rol = (getattr(request, "jwt_payload", None) or {}).get("rol")
+            if rol not in allowed_roles:
+                return jsonify({"error": "Permisos insuficientes para esta operación"}), 403
+            return f(*args, **kwargs)
+        return wrapper
+    return decorator
+
+
+@app.before_request
+def start_request_trace():
+    g.start_time = time.perf_counter()
+    g.request_id = request.headers.get("X-Request-Id") or str(uuid.uuid4())
+
+
+@app.after_request
+def log_request_trace(response):
+    ms = round((time.perf_counter() - getattr(g, "start_time", time.perf_counter())) * 1000, 1)
+    req_id = getattr(g, "request_id", "-")
+    response.headers["X-Request-Id"] = req_id
+    logger.info("request_id=%s method=%s path=%s status=%s ms=%s", req_id, request.method, request.path, response.status_code, ms)
+    return response
 
 
 # ==================== SEED INICIAL ====================
@@ -363,6 +396,7 @@ def change_password():
 
 
 @app.post("/auth/forgot-password")
+@app.post("/auth/password/recovery")
 def forgot_password():
     """Generar token de recuperación de contraseña (RF08)
     ---
@@ -424,6 +458,7 @@ def reset_password():
 
 
 @app.get("/roles")
+@auth_required
 def list_roles():
     """Listar roles disponibles (RF07)
     ---
@@ -436,6 +471,7 @@ def list_roles():
 
 
 @app.get("/users")
+@auth_required
 def list_users():
     """Listar todos los usuarios (RF07)
     ---
@@ -447,7 +483,47 @@ def list_users():
     return jsonify([u.to_dict() for u in usuarios]), 200
 
 
+@app.post("/users")
+@auth_required
+@role_required("ADMINISTRADOR")
+def admin_create_user():
+    """Crear usuario por un administrador (RF07)
+    ---
+    responses:
+      201:
+        description: Usuario creado por administrador
+      403:
+        description: Permisos insuficientes
+    """
+    data = request.get_json(silent=True) or {}
+    correo = (data.get("correo") or "").strip().lower()
+    nombre = (data.get("nombre") or "").strip()
+    contrasena = data.get("contrasena") or ""
+    id_rol = data.get("id_rol")
+
+    if not correo or not nombre or len(contrasena) < 6:
+        return jsonify({"error": "correo, nombre y contrasena (mín. 6 caracteres) son obligatorios"}), 400
+    if Usuario.query.filter_by(correo=correo).first():
+        return jsonify({"error": "El correo ya está registrado"}), 409
+
+    rol = Rol.query.get(id_rol) if id_rol else Rol.query.filter_by(nombre="OPERADOR_BODEGA").first()
+    if not rol:
+        return jsonify({"error": "Rol no encontrado"}), 404
+
+    usuario = Usuario(
+        id_rol=rol.id_rol,
+        correo=correo,
+        nombre=nombre,
+        contrasena_hash=generate_password_hash(contrasena),
+        estado=(data.get("estado") or "ACTIVO").upper(),
+    )
+    db.session.add(usuario)
+    db.session.commit()
+    return jsonify(usuario.to_dict()), 201
+
+
 @app.get("/users/<int:id_usuario>")
+@auth_required
 def get_user(id_usuario):
     """Obtener un usuario por ID (RF07)
     ---
@@ -464,12 +540,17 @@ def get_user(id_usuario):
 
 
 @app.put("/users/<int:id_usuario>")
+@app.patch("/users/<int:id_usuario>")
+@auth_required
+@role_required("ADMINISTRADOR")
 def update_user(id_usuario):
     """Actualizar datos, rol o estado de un usuario (RF07)
     ---
     responses:
       200:
         description: Usuario actualizado
+      403:
+        description: Permisos insuficientes
     """
     usuario = Usuario.query.get(id_usuario)
     if not usuario:

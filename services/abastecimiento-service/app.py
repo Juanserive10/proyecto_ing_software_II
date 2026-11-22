@@ -1,16 +1,37 @@
+import logging
 import os
+import time
 import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
 
 import requests
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, g
 from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
 from flasgger import Swagger
+from sqlalchemy.orm import selectinload
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [abastecimiento-service] %(levelname)s: %(message)s")
+logger = logging.getLogger("abastecimiento-service")
 
 app = Flask(__name__)
 CORS(app)
+
+
+@app.before_request
+def start_request_trace():
+    g.start_time = time.perf_counter()
+    g.request_id = request.headers.get("X-Request-Id") or str(uuid.uuid4())
+
+
+@app.after_request
+def log_request_trace(response):
+    ms = round((time.perf_counter() - getattr(g, "start_time", time.perf_counter())) * 1000, 1)
+    req_id = getattr(g, "request_id", "-")
+    response.headers["X-Request-Id"] = req_id
+    logger.info("request_id=%s method=%s path=%s status=%s ms=%s", req_id, request.method, request.path, response.status_code, ms)
+    return response
 
 app.config["SQLALCHEMY_DATABASE_URI"] = os.getenv(
     "DATABASE_URL", "sqlite:///abastecimiento.db"
@@ -339,7 +360,17 @@ def list_purchase_orders():
       200:
         description: Lista de órdenes de compra
     """
-    ordenes = OrdenCompra.query.order_by(OrdenCompra.fecha_emision.desc()).all()
+    limit = min(max(request.args.get("limit", default=100, type=int), 1), 1000)
+    ordenes = (
+        OrdenCompra.query.options(
+            selectinload(OrdenCompra.proveedor),
+            selectinload(OrdenCompra.detalles),
+            selectinload(OrdenCompra.recepciones).selectinload(Recepcion.detalles),
+        )
+        .order_by(OrdenCompra.fecha_emision.desc(), OrdenCompra.id_orden.desc())
+        .limit(limit)
+        .all()
+    )
     return jsonify([o.to_dict(include_details=True) for o in ordenes]), 200
 
 
@@ -405,6 +436,28 @@ def create_purchase_order():
     oc.total_estimado = total
     db.session.commit()
     return jsonify(oc.to_dict(include_details=True)), 201
+
+
+@app.patch("/purchase-orders/<int:id_orden>")
+def update_purchase_order_status(id_orden):
+    """Actualizar estado de una orden de compra (RF06)
+    ---
+    responses:
+      200:
+        description: Estado actualizado
+    """
+    oc = OrdenCompra.query.get(id_orden)
+    if not oc:
+        return jsonify({"error": "Orden de compra no encontrada"}), 404
+    data = request.get_json(silent=True) or {}
+    nuevo_estado = (data.get("estado") or "").strip().upper()
+    if nuevo_estado not in ("EMITIDA", "PARCIAL", "RECIBIDA", "CANCELADA"):
+        return jsonify({"error": "estado inválido"}), 400
+    if oc.estado == "RECIBIDA" and nuevo_estado == "CANCELADA":
+        return jsonify({"error": "No se puede cancelar una orden ya recibida"}), 400
+    oc.estado = nuevo_estado
+    db.session.commit()
+    return jsonify(oc.to_dict(include_details=True)), 200
 
 
 @app.post("/purchase-orders/<int:id_orden>/receipts")
@@ -478,6 +531,7 @@ def receive_purchase_order(id_orden):
 
     # Flujo síncrono Abastecimiento -> Inventario (ENTRADA)
     inv_url = app.config["INVENTARIO_URL"].rstrip("/")
+    req_headers = {"X-Request-Id": getattr(g, "request_id", str(uuid.uuid4()))}
     inventario_responses = []
     try:
         for idx, (id_prod, cant_rec, costo_u) in enumerate(movimientos_para_enviar):
@@ -494,6 +548,7 @@ def receive_purchase_order(id_orden):
                     "clave_idempotencia": f"{idem_key}-ITEM-{idx}",
                     "precio_referencia": float(costo_u),
                 },
+                headers=req_headers,
                 timeout=8,
             )
             if resp.status_code not in (200, 201):

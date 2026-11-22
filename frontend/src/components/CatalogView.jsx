@@ -5,6 +5,7 @@ import { downloadCsv, formatMoney } from '../utils/format'
 import Modal from './Modal'
 
 export default function CatalogView({ user, products, categories, stocks, onUpdated, notify }) {
+  const canManage = user?.rol === 'ADMINISTRADOR'
   const [subTab, setSubTab] = useState('productos') // 'productos' | 'categorias' | 'importar'
   const [searchQ, setSearchQ] = useState('')
   const [filterCat, setFilterCat] = useState('ALL')
@@ -130,6 +131,19 @@ export default function CatalogView({ user, products, categories, stocks, onUpda
     }
   }
 
+  const handleToggleCategory = async (cat) => {
+    try {
+      await apiFetch('catalogo', `/categories/${cat.id_categoria}`, {
+        method: 'PUT',
+        body: JSON.stringify({ activo: !cat.activo }),
+      })
+      await onUpdated()
+      notify(cat.activo ? 'Categoría desactivada' : 'Categoría reactivada')
+    } catch (err) {
+      notify(err.message, true)
+    }
+  }
+
   const handleImportFile = async (e) => {
     const file = e.target.files?.[0]
     if (!file) return
@@ -167,19 +181,23 @@ export default function CatalogView({ user, products, categories, stocks, onUpda
           <button type="button" className={`seg-tab ${subTab === 'categorias' ? 'active' : ''}`} onClick={() => setSubTab('categorias')}>
             Categorías ({categories.length})
           </button>
-          <button type="button" className={`seg-tab ${subTab === 'importar' ? 'active' : ''}`} onClick={() => setSubTab('importar')}>
-            Importar Excel / CSV
-          </button>
+          {canManage && (
+            <button type="button" className={`seg-tab ${subTab === 'importar' ? 'active' : ''}`} onClick={() => setSubTab('importar')}>
+              Importar Excel / CSV
+            </button>
+          )}
         </div>
 
-        <div style={{ display: 'flex', gap: '0.5rem' }}>
-          <button type="button" className="btn btn-secondary btn-sm" onClick={() => setCatModal(true)}>
-            <Plus size={14} /> Categoría
-          </button>
-          <button type="button" className="btn btn-sm" onClick={openCreateProduct}>
-            <Plus size={14} /> Nuevo Producto
-          </button>
-        </div>
+        {canManage && (
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <button type="button" className="btn btn-secondary btn-sm" onClick={() => setCatModal(true)}>
+              <Plus size={14} /> Categoría
+            </button>
+            <button type="button" className="btn btn-sm" onClick={openCreateProduct}>
+              <Plus size={14} /> Nuevo Producto
+            </button>
+          </div>
+        )}
       </div>
 
       {subTab === 'productos' && (
@@ -214,7 +232,7 @@ export default function CatalogView({ user, products, categories, stocks, onUpda
                   <th>Stock Total</th>
                   <th>Precio Venta</th>
                   <th>Estado</th>
-                  <th>Acciones</th>
+                  {canManage && <th>Acciones</th>}
                 </tr>
               </thead>
               <tbody>
@@ -234,16 +252,18 @@ export default function CatalogView({ user, products, categories, stocks, onUpda
                         {p.activo ? 'Activo' : 'Inactivo'}
                       </span>
                     </td>
-                    <td>
-                      <div style={{ display: 'flex', gap: '0.4rem' }}>
-                        <button type="button" className="btn btn-secondary btn-sm" onClick={() => openEditProduct(p)}>
-                          <Edit3 size={13} /> Editar
-                        </button>
-                        <button type="button" className="btn btn-secondary btn-sm" onClick={() => handleToggleProduct(p)}>
-                          {p.activo ? 'Baja' : 'Activar'}
-                        </button>
-                      </div>
-                    </td>
+                    {canManage && (
+                      <td>
+                        <div style={{ display: 'flex', gap: '0.4rem' }}>
+                          <button type="button" className="btn btn-secondary btn-sm" onClick={() => openEditProduct(p)}>
+                            <Edit3 size={13} /> Editar
+                          </button>
+                          <button type="button" className="btn btn-secondary btn-sm" onClick={() => handleToggleProduct(p)}>
+                            {p.activo ? 'Baja' : 'Activar'}
+                          </button>
+                        </div>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
@@ -263,7 +283,7 @@ export default function CatalogView({ user, products, categories, stocks, onUpda
           <div className="table-wrapper" role="region" aria-label="Categorías" tabIndex={0}>
             <table>
               <thead>
-                <tr><th>ID</th><th>Nombre</th><th>Categoría Padre</th><th>Descripción</th><th>Estado</th></tr>
+                <tr><th>ID</th><th>Nombre</th><th>Categoría Padre</th><th>Descripción</th><th>Estado</th>{canManage && <th>Acción</th>}</tr>
               </thead>
               <tbody>
                 {categories.map((c) => {
@@ -275,6 +295,13 @@ export default function CatalogView({ user, products, categories, stocks, onUpda
                       <td>{padre ? padre.nombre : 'Principal'}</td>
                       <td style={{ color: 'var(--ink-muted)' }}>{c.descripcion || '—'}</td>
                       <td><span className={`badge ${c.activo ? 'badge-sage' : 'badge-neutral'}`}>{c.activo ? 'Activa' : 'Inactiva'}</span></td>
+                      {canManage && (
+                        <td>
+                          <button type="button" className="btn btn-secondary btn-sm" onClick={() => handleToggleCategory(c)}>
+                            {c.activo ? 'Desactivar' : 'Activar'}
+                          </button>
+                        </td>
+                      )}
                     </tr>
                   )
                 })}

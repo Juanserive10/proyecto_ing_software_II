@@ -6,6 +6,7 @@ import { DonutBreakdownChart, HorizontalBarChart } from './Charts'
 import Modal from './Modal'
 
 export default function ReportsView({
+  user,
   products,
   stocks,
   movements,
@@ -15,6 +16,7 @@ export default function ReportsView({
   onUpdated,
   notify,
 }) {
+  const canConfigure = user?.rol === 'ADMINISTRADOR' || user?.rol === 'OPERADOR_BODEGA'
   const [umbModal, setUmbModal] = useState(false)
   const [umbForm, setUmbForm] = useState({ id_producto: 1, id_bodega: 1, cantidad_minima: 15 })
 
@@ -42,21 +44,23 @@ export default function ReportsView({
 
   const totalValuation = valuationByWarehouse.reduce((a, b) => a + b.value, 0)
 
-  // Rotación: top productos con más movimientos registrados en Kardex
-  const topMovementProducts = useMemo(() => {
+  // Rotación: top productos con mayor y menor rotación en Kardex (RF11)
+  const { topMovementProducts, lowMovementProducts } = useMemo(() => {
     const counts = {}
+    products.forEach((p) => { counts[p.id_producto] = 0 })
     movements.forEach((m) => {
       counts[m.id_producto] = (counts[m.id_producto] || 0) + Number(m.cantidad || 0)
     })
-    return Object.entries(counts)
-      .map(([id, total]) => ({
-        label: productMap[id]?.nombre || `Producto #${id}`,
-        value: total,
-        sub: 'movs',
-      }))
-      .sort((a, b) => b.value - a.value)
-      .slice(0, 6)
-  }, [movements, productMap])
+    const rows = Object.entries(counts).map(([id, total]) => ({
+      label: productMap[id]?.nombre || `Producto #${id}`,
+      value: total,
+      sub: 'movs',
+    }))
+    return {
+      topMovementProducts: [...rows].sort((a, b) => b.value - a.value).slice(0, 6),
+      lowMovementProducts: [...rows].sort((a, b) => a.value - b.value).slice(0, 6),
+    }
+  }, [movements, products, productMap])
 
   const handleSaveThreshold = async (e) => {
     e.preventDefault()
@@ -113,9 +117,11 @@ export default function ReportsView({
         <button type="button" className="btn btn-secondary btn-sm" onClick={exportInventoryReport}>
           <Download size={14} /> Exportar Valorización CSV
         </button>
-        <button type="button" className="btn btn-sm" onClick={() => setUmbModal(true)}>
-          <Plus size={14} /> Configurar Umbral Mínimo
-        </button>
+        {canConfigure && (
+          <button type="button" className="btn btn-sm" onClick={() => setUmbModal(true)}>
+            <Plus size={14} /> Configurar Umbral Mínimo
+          </button>
+        )}
       </div>
 
       {/* Gráficos de reportes (RF11) */}
@@ -149,6 +155,20 @@ export default function ReportsView({
         </article>
       </section>
 
+      <section className="panel">
+        <div className="panel-header">
+          <div>
+            <h3 className="panel-title">Productos con Menor Rotación (RF11)</h3>
+            <p className="panel-desc">Productos con menor volumen de movimientos en el Kardex</p>
+          </div>
+        </div>
+        <HorizontalBarChart
+          items={lowMovementProducts}
+          valueFormatter={(v) => `${v} uds`}
+          color="#B87A2A"
+        />
+      </section>
+
       {/* Alertas + Umbrales */}
       <section className="grid-2">
         <article className="panel">
@@ -179,7 +199,7 @@ export default function ReportsView({
                       </span>
                     </td>
                     <td>
-                      {a.estado === 'ACTIVA' && (
+                      {a.estado === 'ACTIVA' && canConfigure && (
                         <button type="button" className="btn btn-secondary btn-sm" onClick={() => handleAckAlert(a.id_alerta)}>
                           Atender
                         </button>

@@ -44,7 +44,38 @@ return [
             'auth/register',
             'auth/verify',
             'auth/forgot-password',
+            'auth/password/recovery',
             'auth/reset-password',
+        ],
+    ],
+
+    /*
+    | Reglas RBAC por servicio y patrón de ruta para métodos de escritura
+    | (POST, PUT, PATCH, DELETE). Las consultas GET y rutas auth propias
+    | quedan permitidas a todo usuario autenticado.
+    */
+    'write_roles' => [
+        'usuarios' => [
+            'auth/logout' => ['ADMINISTRADOR', 'OPERADOR_BODEGA', 'VENDEDOR'],
+            'auth/change-password' => ['ADMINISTRADOR', 'OPERADOR_BODEGA', 'VENDEDOR'],
+            '*' => ['ADMINISTRADOR'],
+        ],
+        'catalogo' => [
+            '*' => ['ADMINISTRADOR'],
+        ],
+        'inventario' => [
+            '*' => ['ADMINISTRADOR', 'OPERADOR_BODEGA'],
+        ],
+        'abastecimiento' => [
+            'purchase-orders/*/receipts' => ['ADMINISTRADOR', 'OPERADOR_BODEGA'],
+            '*' => ['ADMINISTRADOR'],
+        ],
+        'ventas' => [
+            '*' => ['ADMINISTRADOR', 'VENDEDOR'],
+        ],
+        'reportes' => [
+            'reports/sync' => ['ADMINISTRADOR', 'OPERADOR_BODEGA', 'VENDEDOR'],
+            '*' => ['ADMINISTRADOR', 'OPERADOR_BODEGA'],
         ],
     ],
 

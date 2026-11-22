@@ -46,9 +46,39 @@ class ValidateJwt
             return $this->unauthorized('Token inválido o expirado');
         }
 
+        if (! $this->isAuthorizedForRole($request, $service, $path, $payload)) {
+            $rol = (string) ($payload['rol'] ?? 'DESCONOCIDO');
+
+            return response()->json(
+                ['error' => "Permisos insuficientes para el rol $rol en $service/$path"],
+                403,
+            );
+        }
+
         $request->attributes->set('jwt_payload', $payload);
 
         return $next($request);
+    }
+
+    private function isAuthorizedForRole(Request $request, string $service, string $path, array $payload): bool
+    {
+        if (in_array($request->method(), ['GET', 'HEAD'], true)) {
+            return true;
+        }
+
+        $rol = (string) ($payload['rol'] ?? '');
+        if ($rol === 'ADMINISTRADOR') {
+            return true;
+        }
+
+        $rules = config("gateway.write_roles.$service", []);
+        foreach ($rules as $pattern => $allowedRoles) {
+            if (Str::is($pattern, $path)) {
+                return in_array($rol, $allowedRoles, true);
+            }
+        }
+
+        return false;
     }
 
     private function isPublic(string $service, string $path): bool

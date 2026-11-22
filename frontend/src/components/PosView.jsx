@@ -12,7 +12,7 @@ import {
   ShoppingBag,
 } from 'lucide-react'
 import { apiFetch } from '../api'
-import { formatMoney, formatDate } from '../utils/format'
+import { formatMoney, formatDate, toLocalDateKey } from '../utils/format'
 import Modal from './Modal'
 
 export default function PosView({
@@ -22,6 +22,7 @@ export default function PosView({
   warehouses,
   stocks,
   sales,
+  usersList = [],
   onSaleCompleted,
   notify,
 }) {
@@ -38,6 +39,8 @@ export default function PosView({
   // Filtros historial
   const [histMetodo, setHistMetodo] = useState('ALL')
   const [histQuery, setHistQuery] = useState('')
+  const [histFecha, setHistFecha] = useState('')
+  const [histUsuario, setHistUsuario] = useState('ALL')
 
   // Mapa rápido de stock disponible en la bodega seleccionada
   const stockByProduct = useMemo(() => {
@@ -173,14 +176,22 @@ export default function PosView({
     return [...new Set(candidates.filter((v) => v >= cartTotal))].slice(0, 4)
   }, [cartTotal])
 
+  const userMap = useMemo(() => {
+    const m = {}
+    usersList.forEach((u) => { m[u.id_usuario] = u })
+    return m
+  }, [usersList])
+
   const filteredHistory = useMemo(() => {
     const q = histQuery.trim().toLowerCase()
     return sales.filter((s) => {
       if (histMetodo !== 'ALL' && s.metodo_pago !== histMetodo) return false
+      if (histUsuario !== 'ALL' && Number(s.id_usuario) !== Number(histUsuario)) return false
+      if (histFecha && toLocalDateKey(s.fecha) !== histFecha) return false
       if (!q) return true
       return s.numero.toLowerCase().includes(q)
     })
-  }, [sales, histMetodo, histQuery])
+  }, [sales, histMetodo, histUsuario, histFecha, histQuery])
 
   return (
     <div className="view-enter">
@@ -480,7 +491,7 @@ export default function PosView({
               <p className="panel-desc">Consulta ventas confirmadas o rechazadas con filtros por método de pago</p>
             </div>
             <div style={{ display: 'flex', gap: '0.6rem', flexWrap: 'wrap' }}>
-              <div className="search-bar" style={{ minWidth: '200px' }}>
+              <div className="search-bar" style={{ minWidth: '180px' }}>
                 <Search size={15} />
                 <input
                   value={histQuery}
@@ -488,6 +499,19 @@ export default function PosView({
                   placeholder="Buscar por # venta..."
                 />
               </div>
+              <input
+                type="date"
+                aria-label="Filtrar por fecha"
+                style={{ width: 'auto' }}
+                value={histFecha}
+                onChange={(e) => setHistFecha(e.target.value)}
+              />
+              <select style={{ width: 'auto' }} value={histUsuario} onChange={(e) => setHistUsuario(e.target.value)}>
+                <option value="ALL">Todos los vendedores</option>
+                {usersList.map((u) => (
+                  <option key={u.id_usuario} value={u.id_usuario}>{u.nombre}</option>
+                ))}
+              </select>
               <select style={{ width: 'auto' }} value={histMetodo} onChange={(e) => setHistMetodo(e.target.value)}>
                 <option value="ALL">Todos los métodos</option>
                 <option value="EFECTIVO">Efectivo</option>
@@ -503,6 +527,7 @@ export default function PosView({
                 <tr>
                   <th>Comprobante</th>
                   <th>Fecha</th>
+                  <th>Vendedor</th>
                   <th>Bodega</th>
                   <th>Método de Pago</th>
                   <th>Ítems</th>
@@ -515,6 +540,7 @@ export default function PosView({
                   <tr key={s.id_venta}>
                     <td className="mono" style={{ fontWeight: 600 }}>{s.numero}</td>
                     <td style={{ fontSize: '0.8rem', color: 'var(--ink-muted)' }}>{formatDate(s.fecha)}</td>
+                    <td style={{ fontSize: '0.8rem' }}>{userMap[s.id_usuario]?.nombre || `Usuario #${s.id_usuario}`}</td>
                     <td className="mono">BOD-0{s.id_bodega}</td>
                     <td>{s.metodo_pago}</td>
                     <td className="mono">{(s.detalles || []).length} ref.</td>

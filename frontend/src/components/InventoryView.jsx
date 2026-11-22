@@ -17,9 +17,11 @@ export default function InventoryView({
   stocks,
   movements,
   returnsList,
+  usersList = [],
   onUpdated,
   notify,
 }) {
+  const canOperate = user?.rol === 'ADMINISTRADOR' || user?.rol === 'OPERADOR_BODEGA'
   const [subTab, setSubTab] = useState('stock') // 'stock' | 'kardex' | 'devoluciones' | 'bodegas'
   const [filterBodega, setFilterBodega] = useState('ALL')
   const [searchQ, setSearchQ] = useState('')
@@ -52,6 +54,12 @@ export default function InventoryView({
     warehouses.forEach((w) => { m[w.id_bodega] = w })
     return m
   }, [warehouses])
+
+  const userMap = useMemo(() => {
+    const m = {}
+    usersList.forEach((u) => { m[u.id_usuario] = u })
+    return m
+  }, [usersList])
 
   const filteredStock = useMemo(() => {
     const q = searchQ.trim().toLowerCase()
@@ -163,6 +171,19 @@ export default function InventoryView({
     }
   }
 
+  const handleToggleWarehouse = async (w) => {
+    try {
+      await apiFetch('inventario', `/warehouses/${w.id_bodega}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ activo: !w.activo }),
+      })
+      await onUpdated()
+      notify(w.activo ? `Bodega ${w.codigo} desactivada` : `Bodega ${w.codigo} activada`)
+    } catch (err) {
+      notify(err.message, true)
+    }
+  }
+
   return (
     <div className="view-enter">
       {/* Barra superior de sub-vistas y botones de acción */}
@@ -182,20 +203,22 @@ export default function InventoryView({
           </button>
         </div>
 
-        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
-          <button type="button" className="btn btn-sm" onClick={() => setActiveModal('movimiento')}>
-            <Plus size={14} /> Movimiento
-          </button>
-          <button type="button" className="btn btn-ochre btn-sm" onClick={() => setActiveModal('traslado')}>
-            <ArrowRightLeft size={14} /> Trasladar
-          </button>
-          <button type="button" className="btn btn-secondary btn-sm" onClick={() => setActiveModal('devolucion')}>
-            <RotateCcw size={14} /> Devolución
-          </button>
-          <button type="button" className="btn btn-secondary btn-sm" onClick={() => setActiveModal('bodega')}>
-            <Warehouse size={14} /> Nueva Bodega
-          </button>
-        </div>
+        {canOperate && (
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+            <button type="button" className="btn btn-sm" onClick={() => setActiveModal('movimiento')}>
+              <Plus size={14} /> Movimiento
+            </button>
+            <button type="button" className="btn btn-ochre btn-sm" onClick={() => setActiveModal('traslado')}>
+              <ArrowRightLeft size={14} /> Trasladar
+            </button>
+            <button type="button" className="btn btn-secondary btn-sm" onClick={() => setActiveModal('devolucion')}>
+              <RotateCcw size={14} /> Devolución
+            </button>
+            <button type="button" className="btn btn-secondary btn-sm" onClick={() => setActiveModal('bodega')}>
+              <Warehouse size={14} /> Nueva Bodega
+            </button>
+          </div>
+        )}
       </div>
 
       {/* EXISTENCIAS POR BODEGA */}
@@ -301,6 +324,7 @@ export default function InventoryView({
                   <th>Producto</th>
                   <th>Origen → Destino</th>
                   <th>Cantidad</th>
+                  <th>Usuario</th>
                   <th>Referencia</th>
                 </tr>
               </thead>
@@ -309,6 +333,7 @@ export default function InventoryView({
                   const p = productMap[m.id_producto]
                   const orig = m.id_bodega_origen ? warehouseMap[m.id_bodega_origen]?.codigo || `BOD-0${m.id_bodega_origen}` : '—'
                   const dest = m.id_bodega_destino ? warehouseMap[m.id_bodega_destino]?.codigo || `BOD-0${m.id_bodega_destino}` : '—'
+                  const uName = userMap[m.id_usuario]?.nombre || `Usuario #${m.id_usuario}`
                   const badgeCls =
                     m.tipo.includes('ENTRADA') || m.tipo.includes('POSITIVO') || m.tipo === 'DEVOLUCION_CLIENTE'
                       ? 'badge-sage'
@@ -326,6 +351,7 @@ export default function InventoryView({
                       </td>
                       <td className="mono" style={{ fontSize: '0.8rem' }}>{orig} → {dest}</td>
                       <td className="mono" style={{ fontWeight: 700 }}>{m.cantidad}</td>
+                      <td style={{ fontSize: '0.78rem' }}>{uName}</td>
                       <td style={{ fontSize: '0.78rem', color: 'var(--ink-secondary)' }}>
                         {m.tipo_referencia}{m.id_referencia ? ` #${m.id_referencia}` : ''}
                       </td>
@@ -404,7 +430,7 @@ export default function InventoryView({
           <div className="table-wrapper" role="region" aria-label="Bodegas" tabIndex={0}>
             <table>
               <thead>
-                <tr><th>ID</th><th>Código</th><th>Nombre</th><th>Ubicación</th><th>Estado</th></tr>
+                <tr><th>ID</th><th>Código</th><th>Nombre</th><th>Ubicación</th><th>Estado</th>{canOperate && <th>Acción</th>}</tr>
               </thead>
               <tbody>
                 {warehouses.map((w) => (
@@ -414,6 +440,13 @@ export default function InventoryView({
                     <td style={{ fontWeight: 600 }}>{w.nombre}</td>
                     <td>{w.ubicacion || '—'}</td>
                     <td><span className={`badge ${w.activo ? 'badge-sage' : 'badge-neutral'}`}>{w.activo ? 'Activa' : 'Inactiva'}</span></td>
+                    {canOperate && (
+                      <td>
+                        <button type="button" className="btn btn-secondary btn-sm" onClick={() => handleToggleWarehouse(w)}>
+                          {w.activo ? 'Desactivar' : 'Activar'}
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>

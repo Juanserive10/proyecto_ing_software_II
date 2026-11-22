@@ -33,7 +33,7 @@ DEMO_USERS = [
     ("bodega@andina.com", "Bodega123*"),
     ("ventas@andina.com", "Ventas123*"),
 ]
-SEARCH_TERMS = ["arroz", "aceite", "café", "azúcar", "leche", "ARR", "PROD", "gaseosa", "pan", "a"]
+SEARCH_TERMS = ["taladro", "pulidora", "martillo", "tornillo", "pintura", "PVC", "FER", "chazo", "rodillo", "a"]
 
 
 class UsuariosCatalogoUser(HttpUser):

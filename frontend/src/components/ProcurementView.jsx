@@ -5,6 +5,8 @@ import { formatDate, formatMoney } from '../utils/format'
 import Modal from './Modal'
 
 export default function ProcurementView({ user, suppliers, orders, products, warehouses, onUpdated, notify }) {
+  const canManage = user?.rol === 'ADMINISTRADOR'
+  const canReceive = user?.rol === 'ADMINISTRADOR' || user?.rol === 'OPERADOR_BODEGA'
   const [subTab, setSubTab] = useState('ordenes') // 'ordenes' | 'proveedores'
   const [ocModal, setOcModal] = useState(false)
   const [supModal, setSupModal] = useState(false)
@@ -16,6 +18,9 @@ export default function ProcurementView({ user, suppliers, orders, products, war
 
   const [recBodega, setRecBodega] = useState(1)
   const [recQtys, setRecQtys] = useState({})
+  const [supProdsTarget, setSupProdsTarget] = useState(null)
+  const [supProdsList, setSupProdsList] = useState([])
+  const [supProdForm, setSupProdForm] = useState({ id_producto: 1, codigo_proveedor: '', costo_referencia: 0 })
 
   const productMap = useMemo(() => {
     const m = {}
@@ -105,6 +110,50 @@ export default function ProcurementView({ user, suppliers, orders, products, war
     }
   }
 
+  const handleCancelOrder = async (oc) => {
+    try {
+      await apiFetch('abastecimiento', `/purchase-orders/${oc.id_orden}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ estado: 'CANCELADA' }),
+      })
+      await onUpdated()
+      notify(`Orden ${oc.numero} cancelada`)
+    } catch (err) {
+      notify(err.message, true)
+    }
+  }
+
+  const openSupplierProducts = async (sup) => {
+    setSupProdsTarget(sup)
+    try {
+      const list = await apiFetch('abastecimiento', `/suppliers/${sup.id_proveedor}/products`)
+      setSupProdsList(list)
+    } catch (err) {
+      notify(err.message, true)
+    }
+  }
+
+  const handleAssociateProduct = async (e) => {
+    e.preventDefault()
+    if (!supProdsTarget) return
+    try {
+      await apiFetch('abastecimiento', `/suppliers/${supProdsTarget.id_proveedor}/products`, {
+        method: 'POST',
+        body: JSON.stringify({
+          id_producto: Number(supProdForm.id_producto),
+          codigo_proveedor: supProdForm.codigo_proveedor,
+          costo_referencia: Number(supProdForm.costo_referencia),
+        }),
+      })
+      setSupProdForm({ id_producto: products[0]?.id_producto || 1, codigo_proveedor: '', costo_referencia: 0 })
+      const list = await apiFetch('abastecimiento', `/suppliers/${supProdsTarget.id_proveedor}/products`)
+      setSupProdsList(list)
+      notify('Producto asociado al proveedor')
+    } catch (err) {
+      notify(err.message, true)
+    }
+  }
+
   const ocTotalPreview = ocItems.reduce(
     (acc, it) => acc + Number(it.cantidad_pedida || 0) * Number(it.costo_unitario || 0),
     0
@@ -122,14 +171,16 @@ export default function ProcurementView({ user, suppliers, orders, products, war
           </button>
         </div>
 
-        <div style={{ display: 'flex', gap: '0.5rem' }}>
-          <button type="button" className="btn btn-secondary btn-sm" onClick={() => setSupModal(true)}>
-            <Plus size={14} /> Proveedor
-          </button>
-          <button type="button" className="btn btn-sm" onClick={() => setOcModal(true)}>
-            <Plus size={14} /> Nueva Orden de Compra
-          </button>
-        </div>
+        {canManage && (
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <button type="button" className="btn btn-secondary btn-sm" onClick={() => setSupModal(true)}>
+              <Plus size={14} /> Proveedor
+            </button>
+            <button type="button" className="btn btn-sm" onClick={() => setOcModal(true)}>
+              <Plus size={14} /> Nueva Orden de Compra
+            </button>
+          </div>
+        )}
       </div>
 
       {subTab === 'ordenes' ? (
@@ -157,7 +208,7 @@ export default function ProcurementView({ user, suppliers, orders, products, war
               <tbody>
                 {orders.map((oc) => {
                   const badgeCls =
-                    oc.estado === 'RECIBIDA' ? 'badge-sage' : oc.estado === 'PARCIAL' ? 'badge-ochre' : 'badge-slate'
+                    oc.estado === 'RECIBIDA' ? 'badge-sage' : oc.estado === 'PARCIAL' ? 'badge-ochre' : oc.estado === 'CANCELADA' ? 'badge-crimson' : 'badge-slate'
                   return (
                     <tr key={oc.id_orden}>
                       <td className="mono" style={{ fontWeight: 600 }}>{oc.numero}</td>
@@ -169,15 +220,23 @@ export default function ProcurementView({ user, suppliers, orders, products, war
                       <td className="mono" style={{ fontWeight: 700 }}>{formatMoney(oc.total_estimado)}</td>
                       <td><span className={`badge ${badgeCls}`}>{oc.estado}</span></td>
                       <td>
-                        {oc.estado !== 'RECIBIDA' ? (
-                          <button type="button" className="btn btn-sage btn-sm" onClick={() => openReceiveModal(oc)}>
-                            <PackageCheck size={14} /> Recibir
-                          </button>
-                        ) : (
-                          <span style={{ fontSize: '0.78rem', color: 'var(--sage)', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
-                            <CheckCircle2 size={14} /> Completada
-                          </span>
-                        )}
+                        <div style={{ display: 'flex', gap: '0.4rem', alignItems: 'center' }}>
+                          {oc.estado !== 'RECIBIDA' && oc.estado !== 'CANCELADA' && canReceive && (
+                            <button type="button" className="btn btn-sage btn-sm" onClick={() => openReceiveModal(oc)}>
+                              <PackageCheck size={14} /> Recibir
+                            </button>
+                          )}
+                          {oc.estado === 'EMITIDA' && canManage && (
+                            <button type="button" className="btn btn-secondary btn-sm" onClick={() => handleCancelOrder(oc)}>
+                              Cancelar
+                            </button>
+                          )}
+                          {oc.estado === 'RECIBIDA' && (
+                            <span style={{ fontSize: '0.78rem', color: 'var(--sage)', display: 'inline-flex', alignItems: 'center', gap: '0.25rem' }}>
+                              <CheckCircle2 size={14} /> Completada
+                            </span>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   )
@@ -198,7 +257,7 @@ export default function ProcurementView({ user, suppliers, orders, products, war
           <div className="table-wrapper" role="region" aria-label="Proveedores" tabIndex={0}>
             <table>
               <thead>
-                <tr><th>Identificación</th><th>Razón Social</th><th>Contacto</th><th>Correo</th><th>Teléfono</th><th>Estado</th></tr>
+                <tr><th>Identificación</th><th>Razón Social</th><th>Contacto</th><th>Correo</th><th>Teléfono</th><th>Estado</th><th>Productos</th></tr>
               </thead>
               <tbody>
                 {suppliers.map((s) => (
@@ -209,6 +268,11 @@ export default function ProcurementView({ user, suppliers, orders, products, war
                     <td>{s.correo || '—'}</td>
                     <td className="mono">{s.telefono || '—'}</td>
                     <td><span className={`badge ${s.activo ? 'badge-sage' : 'badge-neutral'}`}>{s.activo ? 'Activo' : 'Inactivo'}</span></td>
+                    <td>
+                      <button type="button" className="btn btn-secondary btn-sm" onClick={() => openSupplierProducts(s)}>
+                        Ver / Asociar
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -361,6 +425,58 @@ export default function ProcurementView({ user, suppliers, orders, products, war
             <button type="submit" className="btn">Guardar Proveedor</button>
           </div>
         </form>
+      </Modal>
+
+      {/* Modal Productos asociados al Proveedor (RF03) */}
+      <Modal
+        open={Boolean(supProdsTarget)}
+        onClose={() => setSupProdsTarget(null)}
+        title={`Productos de ${supProdsTarget?.razon_social || ''}`}
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.9rem' }}>
+          <div className="table-wrapper">
+            <table>
+              <thead><tr><th>Producto</th><th>Código Prov.</th><th>Costo Ref.</th></tr></thead>
+              <tbody>
+                {supProdsList.length === 0 ? (
+                  <tr><td colSpan={3} style={{ textAlign: 'center', color: 'var(--ink-muted)' }}>Sin productos asociados.</td></tr>
+                ) : (
+                  supProdsList.map((a) => (
+                    <tr key={a.id_asociacion}>
+                      <td>{productMap[a.id_producto]?.nombre || `Producto #${a.id_producto}`}</td>
+                      <td className="mono">{a.codigo_proveedor || '—'}</td>
+                      <td className="mono">{formatMoney(a.costo_referencia)}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {canManage && (
+            <form onSubmit={handleAssociateProduct} style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', borderTop: '1px solid var(--border)', paddingTop: '0.75rem' }}>
+              <div className="field">
+                <label>Asociar producto</label>
+                <select value={supProdForm.id_producto} onChange={(e) => setSupProdForm({ ...supProdForm, id_producto: e.target.value })}>
+                  {products.map((p) => <option key={p.id_producto} value={p.id_producto}>{p.codigo} — {p.nombre}</option>)}
+                </select>
+              </div>
+              <div className="form-grid">
+                <div className="field">
+                  <label>Código del proveedor</label>
+                  <input value={supProdForm.codigo_proveedor} onChange={(e) => setSupProdForm({ ...supProdForm, codigo_proveedor: e.target.value })} placeholder="Ej. PROV-001" />
+                </div>
+                <div className="field">
+                  <label>Costo de referencia (COP)</label>
+                  <input type="number" min="0" value={supProdForm.costo_referencia} onChange={(e) => setSupProdForm({ ...supProdForm, costo_referencia: e.target.value })} required />
+                </div>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <button type="submit" className="btn btn-sm">Asociar Producto</button>
+              </div>
+            </form>
+          )}
+        </div>
       </Modal>
     </div>
   )

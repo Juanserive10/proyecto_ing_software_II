@@ -53,12 +53,12 @@ class GatewayTest extends TestCase
         Http::fake(['catalogo-service:5002/*' => Http::response([['id_producto' => 1]], 200)]);
         $token = $this->makeToken();
 
-        $this->getJson('/api/catalogo/products?q=arroz&id_categoria=2', ['Authorization' => "Bearer $token"])
+        $this->getJson('/api/catalogo/products?q=taladro&id_categoria=2', ['Authorization' => "Bearer $token"])
             ->assertOk()
             ->assertHeader('X-Upstream-Service', 'catalogo')
             ->assertJsonPath('0.id_producto', 1);
 
-        Http::assertSent(fn (ClientRequest $r) => $r->url() === 'http://catalogo-service:5002/products?q=arroz&id_categoria=2'
+        Http::assertSent(fn (ClientRequest $r) => $r->url() === 'http://catalogo-service:5002/products?q=taladro&id_categoria=2'
             && $r->hasHeader('Authorization', "Bearer $token")
             && $r->hasHeader('X-User-Id', '1'));
     }
@@ -109,5 +109,24 @@ class GatewayTest extends TestCase
     public function test_prefijo_desconocido_responde_404(): void
     {
         $this->getJson('/api/pagos/x')->assertNotFound();
+    }
+
+    public function test_rbac_bloquea_escrituras_no_autorizadas_por_rol(): void
+    {
+        Http::fake(fn () => Http::response(['ok' => true], 200));
+
+        $vendedor = ['Authorization' => 'Bearer '.$this->makeToken(['id_usuario' => 3, 'rol' => 'VENDEDOR'])];
+        $bodega = ['Authorization' => 'Bearer '.$this->makeToken(['id_usuario' => 2, 'rol' => 'OPERADOR_BODEGA'])];
+
+        // Vendedor puede vender y consultar catálogo, pero no ajustar inventario ni editar usuarios
+        $this->postJson('/api/ventas/sales', ['items' => []], $vendedor)->assertOk();
+        $this->getJson('/api/catalogo/products', $vendedor)->assertOk();
+        $this->postJson('/api/inventario/inventory/movements', [], $vendedor)->assertForbidden();
+        $this->putJson('/api/usuarios/users/1', ['id_rol' => 1], $vendedor)->assertForbidden();
+
+        // Operador de bodega puede mover inventario y recibir OC, pero no registrar ventas POS
+        $this->postJson('/api/inventario/inventory/transfers', [], $bodega)->assertOk();
+        $this->postJson('/api/abastecimiento/purchase-orders/1/receipts', [], $bodega)->assertOk();
+        $this->postJson('/api/ventas/sales', [], $bodega)->assertForbidden();
     }
 }
